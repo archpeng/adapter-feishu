@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import { createBitableClient, type BitableClient } from './channels/feishu/bitableClient.js';
 import { createFeishuClient, type FeishuClient } from './channels/feishu/client.js';
 import {
   createLongConnectionIngress,
@@ -24,10 +25,12 @@ import {
   isWarningAgentNotificationPayload
 } from './providers/warning-agent/index.js';
 import { dispatchCardActionRequest } from './server/cardAction.js';
+import { dispatchFormWebhookRequest } from './server/formWebhook.js';
 import { dispatchAdapterHttpRequest, type AdapterHttpRequest, type AdapterHttpResponse } from './server/httpHost.js';
 import { dispatchProviderWebhookRequest } from './server/providerWebhook.js';
 import { createAlertDeduper, type AlertDeduper } from './state/dedupe.js';
 import { createPendingStore, type PendingStore } from './state/pendingStore.js';
+import { createTableWriteQueue } from './state/tableWriteQueue.js';
 
 export interface AdapterRuntime {
   providerRegistry: ProviderRegistry;
@@ -45,6 +48,7 @@ export interface AdapterHttpServer {
 
 export interface AdapterRuntimeDeps {
   createClient(config: { appId: string; appSecret: string }): FeishuClient;
+  createBitableClient(config: { appId: string; appSecret: string }): BitableClient;
   createReplySink(client: FeishuClient): ReplySink;
   createLongConnectionIngress(config: LongConnectionConfig, handleTurn: Parameters<typeof createLongConnectionIngress>[1], deps?: LongConnectionDeps): LongConnectionIngress;
   createHttpServer(
@@ -56,6 +60,9 @@ export interface AdapterRuntimeDeps {
 const defaultDeps: AdapterRuntimeDeps = {
   createClient(config) {
     return createFeishuClient(config);
+  },
+  createBitableClient(config) {
+    return createBitableClient(config);
   },
   createReplySink(client) {
     return createReplySink(client);
@@ -89,6 +96,10 @@ export function createAdapterRuntime(
     appSecret: config.feishu.appSecret
   });
   const replySink = deps.createReplySink(client);
+  const bitableClient = deps.createBitableClient({
+    appId: config.feishu.appId,
+    appSecret: config.feishu.appSecret
+  });
 
   const providerRegistry = createProviderRegistry({
     allowedProviderKeys: config.providers.keys,
@@ -109,6 +120,7 @@ export function createAdapterRuntime(
   const pendingStore = createPendingStore({
     ttlMs: config.state.pendingTtlSeconds * 1000
   });
+  const tableWriteQueue = createTableWriteQueue();
   const now = () => new Date().toISOString();
 
   const handleTurn: Parameters<typeof createLongConnectionIngress>[1] = async (turn) => {
@@ -200,6 +212,17 @@ export function createAdapterRuntime(
               return stringField(payload, 'dedupeKey');
             },
             now
+          });
+        },
+        handleFormWebhook(requestBody) {
+          return dispatchFormWebhookRequest(requestBody, {
+            bitableClient,
+            authToken: config.form.webhookAuthToken,
+            defaultTarget: config.form.defaultTarget,
+            allowTargetOverride: config.form.allowTargetOverride,
+            userIdType: config.form.userIdType,
+            deduper,
+            tableWriteQueue
           });
         },
         handleCardAction(requestBody) {

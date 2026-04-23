@@ -1,4 +1,12 @@
+import type { FeishuUserIdType } from './channels/feishu/bitableClient.js';
+
 export type IngressMode = 'webhook' | 'long_connection';
+
+export interface FeishuFormDefaultTargetConfig {
+  appToken: string;
+  tableId: string;
+  formId?: string;
+}
 
 export interface AdapterConfig {
   service: {
@@ -19,6 +27,12 @@ export interface AdapterConfig {
     defaultProvider?: string;
     allowProviderOverride: boolean;
     webhookAuthToken?: string;
+  };
+  form: {
+    webhookAuthToken?: string;
+    allowTargetOverride: boolean;
+    userIdType: FeishuUserIdType;
+    defaultTarget?: FeishuFormDefaultTargetConfig;
   };
   state: {
     dedupeTtlSeconds: number;
@@ -94,6 +108,46 @@ function parseBoolean(env: Record<string, string | undefined>, key: string, fall
   throw new Error(`${key} must be true or false`);
 }
 
+function parseFeishuUserIdType(
+  env: Record<string, string | undefined>,
+  key: string,
+  fallback: FeishuUserIdType
+): FeishuUserIdType {
+  const raw = env[key]?.trim();
+  if (!raw) {
+    return fallback;
+  }
+  if (raw === 'user_id' || raw === 'union_id' || raw === 'open_id') {
+    return raw;
+  }
+  throw new Error(`${key} must be user_id, union_id, or open_id`);
+}
+
+function parseOptionalFormDefaultTarget(
+  env: Record<string, string | undefined>
+): FeishuFormDefaultTargetConfig | undefined {
+  const appToken = env.ADAPTER_FEISHU_FORM_DEFAULT_APP_TOKEN?.trim();
+  const tableId = env.ADAPTER_FEISHU_FORM_DEFAULT_TABLE_ID?.trim();
+  const formId = env.ADAPTER_FEISHU_FORM_DEFAULT_FORM_ID?.trim();
+  const hasAnyValue = Boolean(appToken || tableId || formId);
+
+  if (!hasAnyValue) {
+    return undefined;
+  }
+
+  if (!appToken || !tableId) {
+    throw new Error(
+      'ADAPTER_FEISHU_FORM_DEFAULT_APP_TOKEN and ADAPTER_FEISHU_FORM_DEFAULT_TABLE_ID must be set together'
+    );
+  }
+
+  return {
+    appToken,
+    tableId,
+    formId: formId || undefined
+  };
+}
+
 export function loadConfig(env: Record<string, string | undefined> = process.env): AdapterConfig {
   const providerKeys = parseCsv(env, 'ADAPTER_FEISHU_PROVIDER_KEYS', ['warning-agent']);
   const defaultProvider = env.ADAPTER_FEISHU_DEFAULT_PROVIDER?.trim() || providerKeys[0];
@@ -121,6 +175,12 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       defaultProvider,
       allowProviderOverride: parseBoolean(env, 'ADAPTER_FEISHU_ALLOW_PROVIDER_OVERRIDE', false),
       webhookAuthToken: env.ADAPTER_FEISHU_PROVIDER_WEBHOOK_AUTH_TOKEN?.trim() || undefined
+    },
+    form: {
+      webhookAuthToken: env.ADAPTER_FEISHU_FORM_WEBHOOK_AUTH_TOKEN?.trim() || undefined,
+      allowTargetOverride: parseBoolean(env, 'ADAPTER_FEISHU_FORM_ALLOW_TARGET_OVERRIDE', false),
+      userIdType: parseFeishuUserIdType(env, 'ADAPTER_FEISHU_FORM_USER_ID_TYPE', 'user_id'),
+      defaultTarget: parseOptionalFormDefaultTarget(env)
     },
     state: {
       dedupeTtlSeconds: parsePositiveInteger(env, 'ADAPTER_FEISHU_DEDUPE_TTL_SECONDS', 300),

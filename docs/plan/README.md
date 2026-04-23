@@ -8,11 +8,14 @@
 
 ## Current Active Slice
 
-- `FW1.S1`
+- `PACK_COMPLETE`
+## Current Wave
+
+- `wave-5/5` — reality audit + closeout/successor routing on top of completed `FW1.S4` docs, curl examples, and verify baseline
 
 ## Intended Handoff
 
-- `execute-plan`
+- `execution-reality-audit`
 
 ## Notes
 

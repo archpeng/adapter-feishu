@@ -7,6 +7,7 @@ export * from './state/index.js';
 export * from './server/index.js';
 export * from './cards/templates.js';
 export * from './channels/feishu/client.js';
+export * from './channels/feishu/bitableClient.js';
 export * from './channels/feishu/longConnection.js';
 export * from './channels/feishu/replySink.js';
 export * from './channels/feishu/types.js';

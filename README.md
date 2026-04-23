@@ -2,13 +2,14 @@
 
 `adapter-feishu` is a **standalone Feishu/Lark channel service**.
 
-Its first delivery path is fixed to:
+Today it exposes two bounded integration paths:
 
 ```text
 warning-agent -> adapter-feishu -> Feishu/Lark
+business payload -> POST /providers/form-webhook -> Feishu Base/Bitable record write
 ```
 
-But the core architecture is frozen from day one as:
+The core architecture remains frozen as:
 
 ```text
 Feishu ingress / alert ingress
@@ -20,7 +21,7 @@ Feishu ingress / alert ingress
 
 ## Product boundary
 
-This repository exists to host Feishu/Lark ingress, routing, delivery, callbacks, and minimal short-lived state.
+This repository exists to host Feishu/Lark ingress, routing, delivery, callbacks, minimal short-lived state, and bounded Feishu Base record-write integration.
 
 It is intentionally **not** any of the following:
 
@@ -29,6 +30,7 @@ It is intentionally **not** any of the following:
 - a general-purpose agent shell
 - a long-term incident truth store
 - a bash/file/tool orchestration host
+- a full smart-form control plane
 
 Boundary anchors frozen for this repo:
 
@@ -36,6 +38,7 @@ Boundary anchors frozen for this repo:
 - provider-neutral adapter core
 - provider-specific integrations live under `src/providers/**`
 - Boston-Bot runtime is not the adapter core
+- form webhook support is bounded to **existing Base/table record writes** plus optional schema preflight
 
 ## What is in scope
 
@@ -47,6 +50,8 @@ Boundary anchors frozen for this repo:
 - provider integrations under `src/providers/**`
 - `warning-agent` as the first provider
 - provider webhook auth for backend-to-adapter pushes
+- `POST /providers/form-webhook` for existing Feishu Base/Bitable record writes
+- optional form-schema preflight via existing `formId`
 
 ## What is out of scope
 
@@ -55,10 +60,18 @@ Boundary anchors frozen for this repo:
 - hard-coding warning-agent-only fields into shared contracts
 - long-term memory, governance brain, or incident ownership
 - pretending the repo is already a multi-tenant control plane
+- creating Base/table/form resources from adapter-feishu
+- full smart-form submission emulation, form patching, field auto-create, attachment upload, or cross-instance write serialization
 
 ## Current implementation state
 
 Active planning pack:
+
+- `docs/plan/adapter-feishu-form-webhook-poc-v1-2026-04-23_PLAN.md`
+- `docs/plan/adapter-feishu-form-webhook-poc-v1-2026-04-23_STATUS.md`
+- `docs/plan/adapter-feishu-form-webhook-poc-v1-2026-04-23_WORKSET.md`
+
+Predecessor pack already closed:
 
 - `docs/plan/adapter-feishu-standalone-multi-service-bootstrap-2026-04-19_PLAN.md`
 - `docs/plan/adapter-feishu-standalone-multi-service-bootstrap-2026-04-19_STATUS.md`
@@ -68,18 +81,80 @@ Current repo truth:
 
 - standalone runtime bootstrap is landed through `src/runtime.ts` and `src/main.ts`
 - provider routing, bounded dedupe, and pending callback state are landed under `src/providers/**` and `src/state/**`
-- provider webhook, card-action dispatch, and health routing are landed under `src/server/**`
-- the first concrete provider path is notify-first `warning-agent -> adapter-feishu -> Feishu/Lark`
-- deployed provider pushes can be protected with a shared webhook auth token
-- the remaining blocked path is alert-forward orchestration, which stays out of scope until `warning-agent` exposes a stable external alert/report API
+- provider webhook, card-action dispatch, health routing, and `/providers/form-webhook` are landed under `src/server/**`
+- the first concrete provider path remains notify-first `warning-agent -> adapter-feishu -> Feishu/Lark`
+- the new form path writes records into an **existing** Feishu Base/table through `bitable.appTableRecord.create`
+- optional schema preflight uses `bitable.appTableForm.get` + `bitable.appTableFormField.list`
+- same-table write safety is intentionally **in-process only** and scoped by `appToken:tableId`
+- the repo still does **not** claim full smart-form control or generic form lifecycle management
+
+## Form webhook quick start
+
+1. Install dependencies:
+   - `npm install`
+2. Copy env template:
+   - `cp .env.example .env`
+3. Fill in at least:
+   - `FEISHU_APP_ID`
+   - `FEISHU_APP_SECRET`
+   - `ADAPTER_FEISHU_FORM_WEBHOOK_AUTH_TOKEN`
+   - `ADAPTER_FEISHU_FORM_DEFAULT_APP_TOKEN`
+   - `ADAPTER_FEISHU_FORM_DEFAULT_TABLE_ID`
+   - optional: `ADAPTER_FEISHU_FORM_DEFAULT_FORM_ID`
+4. Start the service:
+   - `npm run build`
+   - `npm run start`
+5. Send a record-write request:
+
+```bash
+curl -X POST http://127.0.0.1:8787/providers/form-webhook \
+  -H 'content-type: application/json' \
+  -H 'authorization: Bearer form-token-1' \
+  -d '{
+    "clientToken": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
+    "fields": {
+      "Title": "adapter-feishu",
+      "Severity": "warning"
+    }
+  }'
+```
+
+Bounded payload rules:
+
+- `clientToken` must be UUIDv4
+- `fields` must be a JSON object and should match real table column names
+- `validateFormSchema` is optional
+- `target` is only accepted when `ADAPTER_FEISHU_FORM_ALLOW_TARGET_OVERRIDE=true`
+- if `validateFormSchema=true`, the resolved target must include a usable `formId`
+
+Typical success shape:
+
+```json
+{
+  "code": 0,
+  "status": "record_created",
+  "recordId": "rec_xxx",
+  "clientToken": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
+  "targetSource": "default",
+  "target": {
+    "appToken": "bascnxxxxxxxxxxxx",
+    "tableId": "tblxxxxxxxxxxxx",
+    "formId": "formxxxxxxxxxxxx"
+  }
+}
+```
+
+For the full contract, auth rules, override behavior, schema-validation errors, and troubleshooting, see:
+
+- `docs/runbook/adapter-feishu-form-integration.md`
 
 ## Repository layout
 
 ```text
 src/
   app.ts                     ingress mode bootstrap + provider-routing seam for the standalone host
-  config.ts                  configuration loading for the standalone host
-  runtime.ts                 standalone runtime composition for HTTP host + long-connection ingress
+  config.ts                  configuration loading for the standalone host, including form-webhook env contract
+  runtime.ts                 standalone runtime composition for HTTP host + long-connection ingress + form webhook deps
   main.ts                    process entrypoint for local/service startup
   core/contracts.ts          provider-neutral core nouns and payloads
   providers/
@@ -95,13 +170,16 @@ src/
   state/
     dedupe.ts                bounded provider-scoped dedupe window
     pendingStore.ts          bounded provider-scoped pending callback state
+    tableWriteQueue.ts       bounded in-process same-table record-write serialization
   server/
     httpHost.ts              health + route dispatch for standalone HTTP mode
     providerWebhook.ts       notify-first provider webhook dispatch
+    formWebhook.ts           bounded Feishu Base/form-backed record-write ingress
     cardAction.ts            provider-scoped card-action callback dispatch
   cards/templates.ts         generic Feishu card rendering helpers
   channels/feishu/
     client.ts                tenant token + message/card send client
+    bitableClient.ts         Feishu Bitable wrapper seam for record write + form metadata reads
     longConnection.ts        long-connection ingress shell
     replySink.ts             provider notification -> Feishu delivery sink
     types.ts                 shared Feishu ingress/egress types + normalization
@@ -114,13 +192,13 @@ docs/
   runbook/adapter-feishu-local-runbook.md
   runbook/adapter-feishu-provider-integration.md
   runbook/adapter-feishu-warning-agent-onboarding.md
+  runbook/adapter-feishu-form-integration.md
 
 test/
   app.test.ts
   runtime.test.ts
   config.test.ts
   contracts.test.ts
-  docs-boundary.test.ts
   cards/templates.test.ts
   channels/feishu/*.test.ts
   providers/*.test.ts
@@ -129,30 +207,25 @@ test/
   state/*.test.ts
 ```
 
-Remaining extension surface:
-
-- additional providers under `src/providers/**`
-- optional alert-forward integration once a stable external provider API exists
-
 ## Getting started
 
 1. Install dependencies:
    - `npm install`
 2. Copy env template:
    - `cp .env.example .env`
-3. Fill in the minimum Feishu settings.
+3. Fill in the minimum Feishu settings for the path you are testing.
 4. Run verification:
-   - `npm run build`
-   - `npm test`
-5. Optional real Feishu smoke test:
+   - `npm run verify`
+5. Optional real Feishu smoke test for the provider-webhook path:
    - set `ADAPTER_FEISHU_SMOKE_CHAT_ID` or `ADAPTER_FEISHU_SMOKE_OPEN_ID`
    - run `npm run smoke:provider-webhook`
 
 ## Architecture references
 
 - `docs/architecture/adapter-feishu-architecture.md`
-- `docs/plan/adapter-feishu-standalone-multi-service-bootstrap-2026-04-19_PLAN.md`
+- `docs/plan/adapter-feishu-form-webhook-poc-v1-2026-04-23_PLAN.md`
 - `docs/runbook/adapter-feishu-provider-integration.md`
+- `docs/runbook/adapter-feishu-form-integration.md`
 - `docs/runbook/adapter-feishu-warning-agent-onboarding.md`
 
 ## License

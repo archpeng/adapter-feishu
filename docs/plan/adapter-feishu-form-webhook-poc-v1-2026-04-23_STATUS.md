@@ -7,93 +7,91 @@
 
 ## Current State
 
-- state: `IN_PROGRESS`
-- owner: `execute-plan`
+- state: `IN_REVIEW`
+- owner: `execution-reality-audit`
 - route: `PLAN -> EXEC -> REVIEW -> REPLAN -> CLOSEOUT`
 - workstream: `adapter-feishu-form-webhook-poc-v1-2026-04-23`
+- current_wave: `wave-5/5`
+- workspace_state: `dirty(22 files: 15 modified, 7 new)`
 
 ## Current Step
 
-- active_step: `FW1.S1`
-- mode: `ready_for_execution`
+- active_step: `PACK_COMPLETE`
+- mode: `ready_for_review`
 
 ## Planned Stages
 
-- [ ] `FW1.S1` bitable client + config/auth contract freeze
-- [ ] `FW1.S2` form webhook ingress + write path
-- [ ] `FW1.S3` schema preflight + serialized write safety
-- [ ] `FW1.S4` docs + verification + closeout baseline
+- [x] `FW1.S1` bitable client + config/auth contract freeze
+- [x] `FW1.S2` form webhook ingress + write path
+- [x] `FW1.S3` schema preflight + serialized write safety
+- [x] `FW1.S4` docs + verification + closeout baseline
+
+## Wave State
+
+- [x] `wave-1/5` contract seam freeze -> completed via `FW1.S1`
+- [x] `wave-2/5` ingress write path -> completed via `FW1.S2`
+- [x] `wave-3/5` schema preflight + table-write safety -> completed via `FW1.S3`
+- [x] `wave-4/5` docs + regression baseline -> completed via `FW1.S4`
+- [ ] `wave-5/5` reality audit + closeout/successor routing -> active review on `FW1.S4`
 
 ## Immediate Focus
 
-### `FW1.S1`
-
-- Owner: `execute-plan`
-- State: `READY`
-- Priority: `highest`
-
-目标：
-
-- 先把 Feishu Base/Bitable client seam、config、auth boundary 冻结到位，再进入 HTTP route 实现
-
-必须交付：
-
-1. `src/channels/feishu/bitableClient.ts`
-2. `src/config.ts` / `.env.example` 中的 form-webhook config contract
-3. `test/channels/feishu/bitableClient.test.ts`
-4. 必要的 `test/config.test.ts` 更新
-
-done_when:
-
-1. `createRecord / getForm / listFormFields` seam 可被测试证明参数映射正确
-2. form webhook auth token 与现有 provider notify auth token 已在 config contract 中分离
-3. 共享 core contracts 未因 form POC 被重命名或扩写污染
-
-stop_boundary:
-
-1. 不在本 step 中顺手写 `formWebhook.ts` 或 runtime route
-2. 不在本 step 中加入 queue、schema preflight、attachment
-3. 若必须大改 shared core nouns 才能继续，停止并 replan
-
-必须避免：
-
-1. 在 runtime/server 内联 SDK 调用
-2. 默认开启过宽 target override 而没有 config gate
-
+- none; pack complete
 ## Machine State
 
-- active_step: `FW1.S1`
-- latest_completed_step: `none`
-- intended_handoff: `execute-plan`
-
+- active_step: `PACK_COMPLETE`
+- latest_completed_step: `FW1.S4`
+- intended_handoff: `execution-reality-audit`
+- latest_closeout_summary: Completed FW1.S4: added the form integration runbook, aligned README/.env, ran `npm run verify`, and advanced the pack to review-ready wave-5 truth.
+- latest_verification:
+  - `Added `docs/runbook/adapter-feishu-form-integration.md` with bounded config/auth/request/response/troubleshooting guidance for `/providers/form-webhook`.`
+  - `Rewrote `README.md` and updated `.env.example` so repo landing surfaces now describe the existing-Base record-write POC and its env contract honestly.`
+  - ``npm run verify` passed: `tsc -p tsconfig.json` passed and `vitest run` passed with 26 test files / 69 tests.`
+  - `Updated `docs/plan/README.md`, `PLAN`, `STATUS`, and `WORKSET` to mark `FW1.S4` done and hand off wave-5 to `execution-reality-audit`.`
+  - `docs/runbook/adapter-feishu-form-integration.md`
+  - `README.md`
+  - `.env.example`
+  - `docs/plan/README.md`
+  - `docs/plan/adapter-feishu-form-webhook-poc-v1-2026-04-23_PLAN.md`
+  - `docs/plan/adapter-feishu-form-webhook-poc-v1-2026-04-23_STATUS.md`
+  - `docs/plan/adapter-feishu-form-webhook-poc-v1-2026-04-23_WORKSET.md`
+- terminal: `true`
 ## Recently Completed
 
 - predecessor pack `adapter-feishu-standalone-multi-service-bootstrap-2026-04-19` is closed and provides the runtime/message-delivery baseline this new POC builds on
+- `FW1.S1` completed: landed `src/channels/feishu/bitableClient.ts`, froze `ADAPTER_FEISHU_FORM_*` config/auth contract, and added targeted test coverage plus export wiring
+- `FW1.S2` completed: landed form-webhook ingress, route wiring, runtime dependency injection, and regression coverage for existing server surfaces
+- `FW1.S3` completed: added optional form-schema preflight, same-table serialized write protection, and proof for required/hidden/unknown-field behavior
+- `FW1.S4` completed: landed the operator-facing form integration runbook, refreshed the root README and `.env.example`, added concrete curl/payload examples, and recorded full verification truth
 
 ## Next Step
 
-- `FW1.S1`
+- `execution-reality-audit` review on `FW1.S4`
 
 ## Blockers
 
-- none at planning time; execution must still expect Feishu permission/runtime reality to be the first external blocker class
+- none at execution time; live Feishu permission/schema reality remains the first expected external blocker class
 
 ## Gate State
 
 - pack_created: `yes`
-- active_slice_ready: `yes`
+- active_slice_done: `yes`
+- review_handoff_ready: `yes`
 - machine_anchor_aligned: `yes`
 - predecessor_pack_reopened: `no`
 
 ## Latest Evidence
 
-- repo boundary already confirms current adapter scope is standalone Feishu/Lark channel service, not a general smart-form control plane
-- Feishu OpenAPI reality checked before planning:
-  - record write: `bitable.appTableRecord.create`
-  - form metadata: `bitable.appTableForm.get/patch`
-  - form questions: `bitable.appTableFormField.list/patch`
-  - form view create: `bitable.appTableView.create` with `view_type=form`
-- Feishu docs also confirm same-table write conflict risk and `client_token` idempotency semantics for record create
+- `README.md` now points to the active form-webhook pack and documents `/providers/form-webhook` as a bounded existing-Base record-write surface
+- `docs/runbook/adapter-feishu-form-integration.md` now explains app credentials, Base/table/form prerequisites, auth, default target vs override, schema validation, response classes, and troubleshooting
+- `.env.example` now documents the separated form auth token and the `APP_TOKEN + TABLE_ID` pairing rule for the default target
+- `npm run verify` passed after the docs writeback:
+  - `tsc -p tsconfig.json` passed
+  - `vitest run` passed
+  - 26 test files passed
+  - 69 tests passed
+- repo boundary still confirms current adapter scope is standalone Feishu/Lark channel service, not a general smart-form control plane
+- same-table serialization remains intentionally bounded to in-process scope; cross-process coordination is still out of scope
 
 ## Notes
 

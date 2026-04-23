@@ -4,53 +4,29 @@
 - plan_class: `execution-plan`
 - status: `ready`
 - queue_mode: `strict-serial`
-- active_wave: `implementation`
-- active_slice: `FW1.S1`
+- active_wave: `wave-5`
+- wave_count: `5`
+- active_slice: `FW1.S4`
 - last_updated: `2026-04-23`
+
+## Wave Order
+
+- [x] `wave-1/5` contract seam freeze -> `FW1.S1`
+- [x] `wave-2/5` form webhook ingress + write path -> `FW1.S2`
+- [x] `wave-3/5` schema preflight + serialized write safety -> `FW1.S3`
+- [x] `wave-4/5` docs + verification baseline -> `FW1.S4`
+- [ ] `wave-5/5` reality audit + closeout/successor routing -> `execution-reality-audit`
 
 ## Stage Order
 
-- [ ] `FW1.S1` bitable client + config/auth contract freeze
-- [ ] `FW1.S2` form webhook ingress + write path
-- [ ] `FW1.S3` schema preflight + serialized write safety
-- [ ] `FW1.S4` docs + verification + closeout baseline
+- [x] `FW1.S1` bitable client + config/auth contract freeze
+- [x] `FW1.S2` form webhook ingress + write path
+- [x] `FW1.S3` schema preflight + serialized write safety
+- [x] `FW1.S4` docs + verification + closeout baseline
 
 ## Active Stage
 
-### `FW1.S1`
-
-- Owner: `execute-plan`
-- State: `READY`
-- Priority: `highest`
-
-目标：
-
-- 落地可测试的 Bitable client seam 与 form webhook config/auth contract，使后续 server/runtime slice 可以围绕一个稳定依赖面推进
-
-必须交付：
-
-1. `src/channels/feishu/bitableClient.ts`
-2. `src/config.ts` 与 `.env.example` 的 form-webhook config
-3. `test/channels/feishu/bitableClient.test.ts`
-4. 必要的 `test/config.test.ts` / export wiring
-
-done_when:
-
-1. wrapper seam 已覆盖 `createRecord / getForm / listFormFields`
-2. config 已明确 `ADAPTER_FEISHU_FORM_*` contract 与 override gate
-3. 当前 slice 完成后，`FW1.S2` 可直接消费该 seam 而无需重新讨论 client contract
-
-stop_boundary:
-
-1. 不把 HTTP ingress / runtime wiring 混进本 slice
-2. 不把 queue/preflight/attachment 支持提前带入本 slice
-3. 若 execution 发现 target contract 仍有多个 equally-primary 方案竞争，停止并回 `plan-creator`
-
-必须避免：
-
-1. form POC 污染 shared message-delivery core nouns
-2. runtime/server 直接依赖 SDK raw payload shape
-
+- none; pack complete
 ## Slice Ownership
 
 ### `FW1.S1`
@@ -74,30 +50,60 @@ stop_boundary:
 
 ### `FW1.S3`
 
-- `src/channels/feishu/bitableClient.ts`
-- `src/state/tableWriteQueue.ts` (if needed)
 - `src/server/formWebhook.ts`
-- `test/state/tableWriteQueue.test.ts` (if needed)
+- `src/state/tableWriteQueue.ts`
+- `src/state/index.ts`
+- `src/runtime.ts`
 - `test/server/formWebhook.test.ts`
+- `test/state/tableWriteQueue.test.ts`
 
 ### `FW1.S4`
 
 - `docs/runbook/adapter-feishu-form-integration.md`
 - `README.md`
 - `.env.example`
-- `docs/plan/*` status writeback
+- `docs/plan/README.md`
+- `docs/plan/adapter-feishu-form-webhook-poc-v1-2026-04-23_PLAN.md`
+- `docs/plan/adapter-feishu-form-webhook-poc-v1-2026-04-23_STATUS.md`
+- `docs/plan/adapter-feishu-form-webhook-poc-v1-2026-04-23_WORKSET.md`
 
-## Expected Verification
+## Verification Snapshot
 
-- `npm test -- test/channels/feishu/bitableClient.test.ts test/config.test.ts`
-- `npm test -- test/server/formWebhook.test.ts test/server/httpHost.test.ts test/runtime.test.ts`
-- `npm test -- test/state/tableWriteQueue.test.ts` (if queue introduced)
+- doc/source cross-read against `src/config.ts`, `src/server/formWebhook.ts`, and `src/runtime.ts`
 - `npm run verify`
+- result:
+  - `tsc -p tsconfig.json` passed
+  - `vitest run` passed
+  - 26 test files passed
+  - 69 tests passed
 
 ## Execution Notes
 
-- Feishu API reality for this pack is already bounded: record create is the primary write surface; form get/list is optional preflight support
-- same-table write conflict is a real upstream constraint; do not assume optimistic parallel writes are safe
+- `FW1.S4` stayed bounded to docs/example/verification surfaces; no release automation, CI hardening, or second form-related product line was added
+- root `README.md`, `.env.example`, and the new runbook now document `/providers/form-webhook` as existing-Base record write plus optional schema preflight, not full smart-form control
+- best next wave to execute now is `wave-5/5`, because wave-4 deliverables are landed and the next bounded step is reality audit + closeout/successor routing rather than more implementation work
+- Feishu API reality for this pack is still bounded: record create is the primary write surface; form get/list is optional preflight support only
+- same-table write conflict remains a real upstream constraint; `FW1.S3` added bounded in-process serialization, but cross-process coordination is still out of scope
 - keep this pack single-root under `docs/plan/*`; do not create a second shadow roadmap outside the active pack
-- under extension autopilot, the active stage ID is the `stepId` for active-slice reports
+- under extension autopilot, the active stage ID remains the `stepId` for the next routed review report
 - review routes to `execution-reality-audit`; closeout uses the repo-local closeout prompt surface
+
+## Machine Queue
+
+- active_step: `PACK_COMPLETE`
+- latest_completed_step: `FW1.S4`
+- intended_handoff: `execution-reality-audit`
+- latest_closeout_summary: Completed FW1.S4: added the form integration runbook, aligned README/.env, ran `npm run verify`, and advanced the pack to review-ready wave-5 truth.
+- latest_verification:
+  - `Added `docs/runbook/adapter-feishu-form-integration.md` with bounded config/auth/request/response/troubleshooting guidance for `/providers/form-webhook`.`
+  - `Rewrote `README.md` and updated `.env.example` so repo landing surfaces now describe the existing-Base record-write POC and its env contract honestly.`
+  - ``npm run verify` passed: `tsc -p tsconfig.json` passed and `vitest run` passed with 26 test files / 69 tests.`
+  - `Updated `docs/plan/README.md`, `PLAN`, `STATUS`, and `WORKSET` to mark `FW1.S4` done and hand off wave-5 to `execution-reality-audit`.`
+  - `docs/runbook/adapter-feishu-form-integration.md`
+  - `README.md`
+  - `.env.example`
+  - `docs/plan/README.md`
+  - `docs/plan/adapter-feishu-form-webhook-poc-v1-2026-04-23_PLAN.md`
+  - `docs/plan/adapter-feishu-form-webhook-poc-v1-2026-04-23_STATUS.md`
+  - `docs/plan/adapter-feishu-form-webhook-poc-v1-2026-04-23_WORKSET.md`
+- terminal: `true`

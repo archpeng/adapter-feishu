@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { dispatchAdapterHttpRequest } from '../../src/server/httpHost.js';
 
 describe('dispatchAdapterHttpRequest', () => {
-  it('serves health and routes provider/card/feishu requests to the correct handler', async () => {
+  it('serves health and routes provider/form/card/feishu requests to the correct handler', async () => {
     const handleFeishuWebhook = vi.fn().mockResolvedValue({
       statusCode: 200,
       body: { code: 0 }
@@ -11,10 +11,23 @@ describe('dispatchAdapterHttpRequest', () => {
       statusCode: 202,
       body: { code: 0, status: 'delivered' }
     });
+    const handleFormWebhook = vi.fn().mockResolvedValue({
+      statusCode: 200,
+      body: { code: 0, status: 'record_created', recordId: 'rec_1' }
+    });
     const handleCardAction = vi.fn().mockResolvedValue({
       statusCode: 200,
       body: { code: 0, status: 'accepted' }
     });
+
+    const deps = {
+      ingressMode: 'webhook' as const,
+      providerKeys: ['warning-agent'],
+      handleFeishuWebhook,
+      handleProviderWebhook,
+      handleFormWebhook,
+      handleCardAction
+    };
 
     const health = await dispatchAdapterHttpRequest(
       {
@@ -23,13 +36,7 @@ describe('dispatchAdapterHttpRequest', () => {
         headers: {},
         rawBody: ''
       },
-      {
-        ingressMode: 'webhook',
-        providerKeys: ['warning-agent'],
-        handleFeishuWebhook,
-        handleProviderWebhook,
-        handleCardAction
-      }
+      deps
     );
     const providerWebhook = await dispatchAdapterHttpRequest(
       {
@@ -38,13 +45,16 @@ describe('dispatchAdapterHttpRequest', () => {
         headers: {},
         rawBody: '{}'
       },
+      deps
+    );
+    const formWebhook = await dispatchAdapterHttpRequest(
       {
-        ingressMode: 'webhook',
-        providerKeys: ['warning-agent'],
-        handleFeishuWebhook,
-        handleProviderWebhook,
-        handleCardAction
-      }
+        method: 'POST',
+        pathname: '/providers/form-webhook',
+        headers: {},
+        rawBody: '{}'
+      },
+      deps
     );
     const cardAction = await dispatchAdapterHttpRequest(
       {
@@ -53,13 +63,7 @@ describe('dispatchAdapterHttpRequest', () => {
         headers: {},
         rawBody: '{}'
       },
-      {
-        ingressMode: 'webhook',
-        providerKeys: ['warning-agent'],
-        handleFeishuWebhook,
-        handleProviderWebhook,
-        handleCardAction
-      }
+      deps
     );
     const feishuWebhook = await dispatchAdapterHttpRequest(
       {
@@ -70,13 +74,7 @@ describe('dispatchAdapterHttpRequest', () => {
         },
         rawBody: '{"token":"token-1"}'
       },
-      {
-        ingressMode: 'webhook',
-        providerKeys: ['warning-agent'],
-        handleFeishuWebhook,
-        handleProviderWebhook,
-        handleCardAction
-      }
+      deps
     );
 
     expect(health).toEqual({
@@ -89,10 +87,16 @@ describe('dispatchAdapterHttpRequest', () => {
       }
     });
     expect(providerWebhook.statusCode).toBe(202);
+    expect(formWebhook).toEqual({
+      statusCode: 200,
+      body: { code: 0, status: 'record_created', recordId: 'rec_1' }
+    });
     expect(cardAction.statusCode).toBe(200);
     expect(feishuWebhook.statusCode).toBe(200);
     expect(handleProviderWebhook).toHaveBeenCalledTimes(1);
+    expect(handleFormWebhook).toHaveBeenCalledTimes(1);
     expect(handleCardAction).toHaveBeenCalledTimes(1);
+    expect(handleFeishuWebhook).toHaveBeenCalledTimes(1);
     expect(handleFeishuWebhook).toHaveBeenCalledWith({
       method: 'POST',
       pathname: '/webhook',
