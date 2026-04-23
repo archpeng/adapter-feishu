@@ -2,108 +2,97 @@
 
 - plan_id: `adapter-feishu-form-webhook-poc-v1-2026-04-23`
 - plan_class: `execution-plan`
-- status: `ready`
+- status: `completed`
 - queue_mode: `strict-serial`
-- active_wave: `wave-5`
-- wave_count: `5`
-- active_slice: `FW1.S4`
-- last_updated: `2026-04-23`
+- active_wave: `none`
+- active_slice: `none`
+- last_updated: `2026-04-24`
 
-## Wave Order
+## Global freeze rule
 
-- [x] `wave-1/5` contract seam freeze -> `FW1.S1`
-- [x] `wave-2/5` form webhook ingress + write path -> `FW1.S2`
-- [x] `wave-3/5` schema preflight + serialized write safety -> `FW1.S3`
-- [x] `wave-4/5` docs + verification baseline -> `FW1.S4`
-- [ ] `wave-5/5` reality audit + closeout/successor routing -> `execution-reality-audit`
+This completed pack stays bounded to one honest product line:
 
-## Stage Order
+- `POST /providers/form-webhook`
+- write a record into an existing Feishu Base / table
+- optionally preflight against an existing form schema
 
-- [x] `FW1.S1` bitable client + config/auth contract freeze
-- [x] `FW1.S2` form webhook ingress + write path
-- [x] `FW1.S3` schema preflight + serialized write safety
-- [x] `FW1.S4` docs + verification + closeout baseline
+Forbidden inside this closed pack:
 
-## Active Stage
+- pretending the repo is a full smart-form control plane
+- adding Base/table/form create or patch workflows
+- adding attachment upload or field auto-create
+- adding cross-instance write coordination
+- reopening the pack for adjacent CI/release/platform work
 
-- none; pack complete
-## Slice Ownership
+Permitted and now landed:
 
-### `FW1.S1`
+- Bitable wrapper seam for record write + form metadata reads
+- form-webhook auth/default-target/override contract
+- bounded `/providers/form-webhook` ingress
+- in-process same-table serialization by `appToken:tableId`
+- operator-facing runbook / README / env contract
+- targeted + full regression proof
 
-- `src/channels/feishu/bitableClient.ts`
-- `src/config.ts`
-- `.env.example`
-- `src/index.ts` / `src/channels/feishu/*` export seam as needed
-- `test/channels/feishu/bitableClient.test.ts`
-- `test/config.test.ts`
+## Completion summary
 
-### `FW1.S2`
+This workset is closed.
 
-- `src/server/formWebhook.ts`
-- `src/server/httpHost.ts`
-- `src/server/index.ts`
-- `src/runtime.ts`
-- `test/server/formWebhook.test.ts`
-- `test/server/httpHost.test.ts`
-- `test/runtime.test.ts`
+Reality-audit truth:
 
-### `FW1.S3`
+- all planned slices required for the scoped POC goal are present in code, tests, and docs
+- the audit did not find an in-scope gap that required a repair commit before closeout routing
+- targeted audit proof passed with:
+  - `npm test -- test/channels/feishu/bitableClient.test.ts test/config.test.ts test/server/formWebhook.test.ts test/server/httpHost.test.ts test/runtime.test.ts test/state/tableWriteQueue.test.ts test/docs-boundary.test.ts`
+  - 7 passing test files
+  - 29 passing tests
+- full regression remains green on the pushed head with:
+  - `npm run verify`
+  - 26 passing test files
+  - 69 passing tests
+- repo state is clean and pushed at:
+  - `0ee6033 feat: add feishu form webhook record-write poc`
 
-- `src/server/formWebhook.ts`
-- `src/state/tableWriteQueue.ts`
-- `src/state/index.ts`
-- `src/runtime.ts`
-- `test/server/formWebhook.test.ts`
-- `test/state/tableWriteQueue.test.ts`
+## Recently closed in the reality audit
 
-### `FW1.S4`
+### wave-5 review acceptance — bounded form-write POC confirmed
 
-- `docs/runbook/adapter-feishu-form-integration.md`
-- `README.md`
-- `.env.example`
-- `docs/plan/README.md`
-- `docs/plan/adapter-feishu-form-webhook-poc-v1-2026-04-23_PLAN.md`
-- `docs/plan/adapter-feishu-form-webhook-poc-v1-2026-04-23_STATUS.md`
-- `docs/plan/adapter-feishu-form-webhook-poc-v1-2026-04-23_WORKSET.md`
+- state: `done`
+- evidence:
+  - claim/code/test alignment confirmed across:
+    - `src/channels/feishu/bitableClient.ts`
+    - `src/server/formWebhook.ts`
+    - `src/runtime.ts`
+    - `src/state/tableWriteQueue.ts`
+    - `README.md`
+    - `docs/runbook/adapter-feishu-form-integration.md`
+  - targeted audit suite passed:
+    - `npm test -- test/channels/feishu/bitableClient.test.ts test/config.test.ts test/server/formWebhook.test.ts test/server/httpHost.test.ts test/runtime.test.ts test/state/tableWriteQueue.test.ts test/docs-boundary.test.ts`
+  - full regression remained green:
+    - `npm run verify`
+  - repo was already clean and remote-aligned:
+    - `git status -sb`
+    - `git log -1 --oneline --decorate`
+- closeout note:
+  - the next step is the repo-local closeout prompt surface, not more execution inside this pack
 
-## Verification Snapshot
+## Closed queue snapshot
 
-- doc/source cross-read against `src/config.ts`, `src/server/formWebhook.ts`, and `src/runtime.ts`
-- `npm run verify`
-- result:
-  - `tsc -p tsconfig.json` passed
-  - `vitest run` passed
-  - 26 test files passed
-  - 69 tests passed
+| Slice | State | Summary |
+|---|---|---|
+| `FW1.S1` | `done` | Bitable client seam + form config/auth contract freeze |
+| `FW1.S2` | `done` | form-webhook ingress + runtime/host write path |
+| `FW1.S3` | `done` | optional schema preflight + same-table serialized write safety |
+| `FW1.S4` | `done` | runbook, README, env contract, and verification baseline |
+| `wave-5` | `done` | reality audit accepted the scoped POC and routed the repo to closeout |
 
-## Execution Notes
+## Residual handoff notes
 
-- `FW1.S4` stayed bounded to docs/example/verification surfaces; no release automation, CI hardening, or second form-related product line was added
-- root `README.md`, `.env.example`, and the new runbook now document `/providers/form-webhook` as existing-Base record write plus optional schema preflight, not full smart-form control
-- best next wave to execute now is `wave-5/5`, because wave-4 deliverables are landed and the next bounded step is reality audit + closeout/successor routing rather than more implementation work
-- Feishu API reality for this pack is still bounded: record create is the primary write surface; form get/list is optional preflight support only
-- same-table write conflict remains a real upstream constraint; `FW1.S3` added bounded in-process serialization, but cross-process coordination is still out of scope
-- keep this pack single-root under `docs/plan/*`; do not create a second shadow roadmap outside the active pack
-- under extension autopilot, the active stage ID remains the `stepId` for the next routed review report
-- review routes to `execution-reality-audit`; closeout uses the repo-local closeout prompt surface
+This pack should not be reopened for incremental drift.
 
-## Machine Queue
+Use the repo-local closeout prompt surface next.
 
-- active_step: `PACK_COMPLETE`
-- latest_completed_step: `FW1.S4`
-- intended_handoff: `execution-reality-audit`
-- latest_closeout_summary: Completed FW1.S4: added the form integration runbook, aligned README/.env, ran `npm run verify`, and advanced the pack to review-ready wave-5 truth.
-- latest_verification:
-  - `Added `docs/runbook/adapter-feishu-form-integration.md` with bounded config/auth/request/response/troubleshooting guidance for `/providers/form-webhook`.`
-  - `Rewrote `README.md` and updated `.env.example` so repo landing surfaces now describe the existing-Base record-write POC and its env contract honestly.`
-  - ``npm run verify` passed: `tsc -p tsconfig.json` passed and `vitest run` passed with 26 test files / 69 tests.`
-  - `Updated `docs/plan/README.md`, `PLAN`, `STATUS`, and `WORKSET` to mark `FW1.S4` done and hand off wave-5 to `execution-reality-audit`.`
-  - `docs/runbook/adapter-feishu-form-integration.md`
-  - `README.md`
-  - `.env.example`
-  - `docs/plan/README.md`
-  - `docs/plan/adapter-feishu-form-webhook-poc-v1-2026-04-23_PLAN.md`
-  - `docs/plan/adapter-feishu-form-webhook-poc-v1-2026-04-23_STATUS.md`
-  - `docs/plan/adapter-feishu-form-webhook-poc-v1-2026-04-23_WORKSET.md`
-- terminal: `true`
+Create a new successor pack only if future work is needed for:
+
+- live tenant smoke / permission hardening beyond the current local proof
+- form create/patch/control surfaces beyond optional preflight
+- cross-instance coordination or broader release/CI hardening

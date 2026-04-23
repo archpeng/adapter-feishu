@@ -2,10 +2,10 @@
 
 - plan_id: `adapter-feishu-form-webhook-poc-v1-2026-04-23`
 - plan_class: `execution-plan`
-- status: `ready`
+- status: `completed`
 - mode: `autopilot-control-plane`
 - predecessor_plan: `adapter-feishu-standalone-multi-service-bootstrap-2026-04-19`
-- last_updated: `2026-04-23`
+- last_updated: `2026-04-24`
 
 ## Goal
 
@@ -191,14 +191,14 @@ POST /providers/form-webhook
 
 ## Best First Wave To Execute Now
 
-- `wave-5/5` 是当前最优继续波次，因为 `FW1.S4` 已完成 operator-facing docs、payload example 与 `npm run verify` 基线写回；下一步应做 `execution-reality-audit` 审核与 closeout/successor routing，而不是重新打开实现面
+- none; this pack's execution work and wave-5 reality audit are complete on pushed head `0ee6033`, so the next honest route is the repo-local closeout prompt surface rather than another execution wave
 
 ## Blockers / Risks
 
 1. Feishu 应用权限与 Base 文档应用权限若未提前配置，POC 代码即使正确也会返回 `permission denied`
 2. 字段名与实际 Base schema 不一致时，record create 会触发 `FieldNameNotFound` 或字段类型错误
 3. 若 `form_id` 不可用，则 schema preflight 只能退化为 table-level record write；不得谎称完整 form semantic parity
-4. 当前 workspace 因 active slice 代码与 `docs/plan/*` 写回而处于 dirty 状态；继续执行时应保持切片内改动有界，避免把 closeout 或 successor-pack 工作提前混入 `FW1.S4`
+4. 当前 workspace 已在 `0ee6033` 上 clean 且与 `origin/main` 对齐；后续若进入 closeout，应避免重新打开实现面，除非 closeout 发现新的证据性缺口
 5. 若 SDK 类型面与 repo 的 ESM/TypeScript 约束冲突，优先保持本地 wrapper seam 简单而非把 runtime 直接绑死在 SDK 细节上
 6. 同一 `table` 的写冲突是上游真实约束；`FW1.S3` 仅补足 bounded in-process serialization，跨进程/跨实例一致性仍不在本 POC v1 scope 内
 

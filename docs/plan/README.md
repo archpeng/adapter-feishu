@@ -8,18 +8,19 @@
 
 ## Current Active Slice
 
-- `PACK_COMPLETE`
+- `none`
+
 ## Current Wave
 
-- `wave-5/5` — reality audit + closeout/successor routing on top of completed `FW1.S4` docs, curl examples, and verify baseline
+- `closeout` — wave-5 reality audit accepted the pushed form-webhook POC v1; repo-local closeout is the next route
 
 ## Intended Handoff
 
-- `execution-reality-audit`
+- `repo-local closeout prompt surface`
 
 ## Notes
 
-- predecessor pack `adapter-feishu-standalone-multi-service-bootstrap-2026-04-19` remains closed and must not be reopened for this new workstream
-- this successor pack is the single active control-plane truth for Feishu Base / form-backed record-write POC v1
-- active slice ID must stay aligned with WORKSET `Active Stage` and any future routed `autopilot_report.stepId`
-- this POC is bounded to writing records into an existing Feishu Base / table and optional form-schema preflight; it does not claim a full generic smart-form control plane
+- predecessor pack `adapter-feishu-standalone-multi-service-bootstrap-2026-04-19` remains closed and must not be reopened for this workstream
+- this successor pack remains the single control-plane truth for the Feishu Base / form-backed record-write POC v1 until closeout completes
+- repo head is clean and pushed at `0ee6033 feat: add feishu form webhook record-write poc`
+- no successor pack is required for the scoped POC objective; future expansion beyond current boundaries must be planned separately

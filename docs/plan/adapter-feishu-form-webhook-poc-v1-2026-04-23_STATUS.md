@@ -2,99 +2,132 @@
 
 - plan_id: `adapter-feishu-form-webhook-poc-v1-2026-04-23`
 - plan_class: `execution-plan`
-- status: `ready`
-- last_updated: `2026-04-23`
+- status: `completed`
+- current_wave: `closeout`
+- current_step: `review accepted; repo-local closeout ready`
+- last_updated: `2026-04-24`
 
-## Current State
+## 1. Current truth
 
-- state: `IN_REVIEW`
-- owner: `execution-reality-audit`
-- route: `PLAN -> EXEC -> REVIEW -> REPLAN -> CLOSEOUT`
-- workstream: `adapter-feishu-form-webhook-poc-v1-2026-04-23`
-- current_wave: `wave-5/5`
-- workspace_state: `dirty(22 files: 15 modified, 7 new)`
+- repo head is now pushed and aligned at `0ee6033 feat: add feishu form webhook record-write poc`
+- local workspace is clean on `main` and matches `origin/main`
+- the scoped POC v1 goal is present in code and docs:
+  - `POST /providers/form-webhook`
+  - auth / parse / target resolve / optional dedupe
+  - Feishu Base(Bitable) `createRecord(...)`
+  - stable success / validation / downstream error surface
+- the landed implementation remains bounded to:
+  - existing Base/table record write
+  - optional form-schema preflight against an existing `formId`
+  - in-process same-table serialization by `appToken:tableId`
+  - no full smart-form control plane, no cross-instance write coordinator
 
-## Current Step
+## 2. Execution reality audit on 2026-04-24
 
-- active_step: `PACK_COMPLETE`
-- mode: `ready_for_review`
+Findings by claim vs reality:
 
-## Planned Stages
-
-- [x] `FW1.S1` bitable client + config/auth contract freeze
-- [x] `FW1.S2` form webhook ingress + write path
-- [x] `FW1.S3` schema preflight + serialized write safety
-- [x] `FW1.S4` docs + verification + closeout baseline
-
-## Wave State
-
-- [x] `wave-1/5` contract seam freeze -> completed via `FW1.S1`
-- [x] `wave-2/5` ingress write path -> completed via `FW1.S2`
-- [x] `wave-3/5` schema preflight + table-write safety -> completed via `FW1.S3`
-- [x] `wave-4/5` docs + regression baseline -> completed via `FW1.S4`
-- [ ] `wave-5/5` reality audit + closeout/successor routing -> active review on `FW1.S4`
-
-## Immediate Focus
-
-- none; pack complete
-## Machine State
-
-- active_step: `PACK_COMPLETE`
-- latest_completed_step: `FW1.S4`
-- intended_handoff: `execution-reality-audit`
-- latest_closeout_summary: Completed FW1.S4: added the form integration runbook, aligned README/.env, ran `npm run verify`, and advanced the pack to review-ready wave-5 truth.
-- latest_verification:
-  - `Added `docs/runbook/adapter-feishu-form-integration.md` with bounded config/auth/request/response/troubleshooting guidance for `/providers/form-webhook`.`
-  - `Rewrote `README.md` and updated `.env.example` so repo landing surfaces now describe the existing-Base record-write POC and its env contract honestly.`
-  - ``npm run verify` passed: `tsc -p tsconfig.json` passed and `vitest run` passed with 26 test files / 69 tests.`
-  - `Updated `docs/plan/README.md`, `PLAN`, `STATUS`, and `WORKSET` to mark `FW1.S4` done and hand off wave-5 to `execution-reality-audit`.`
+- `confirmed` — `FW1.S1` Bitable seam + config/auth contract are present in:
+  - `src/channels/feishu/bitableClient.ts`
+  - `src/config.ts`
+  - `.env.example`
+  - `test/channels/feishu/bitableClient.test.ts`
+  - `test/config.test.ts`
+- `confirmed` — `FW1.S2` ingress write path is present in:
+  - `src/server/formWebhook.ts`
+  - `src/server/httpHost.ts`
+  - `src/runtime.ts`
+  - `test/server/formWebhook.test.ts`
+  - `test/server/httpHost.test.ts`
+  - `test/runtime.test.ts`
+- `confirmed` — `FW1.S3` schema preflight + same-table serialization are present in:
+  - `src/server/formWebhook.ts`
+  - `src/state/tableWriteQueue.ts`
+  - `test/server/formWebhook.test.ts`
+  - `test/state/tableWriteQueue.test.ts`
+- `confirmed` — `FW1.S4` docs + env + handoff surfaces are present in:
   - `docs/runbook/adapter-feishu-form-integration.md`
   - `README.md`
   - `.env.example`
   - `docs/plan/README.md`
-  - `docs/plan/adapter-feishu-form-webhook-poc-v1-2026-04-23_PLAN.md`
-  - `docs/plan/adapter-feishu-form-webhook-poc-v1-2026-04-23_STATUS.md`
-  - `docs/plan/adapter-feishu-form-webhook-poc-v1-2026-04-23_WORKSET.md`
-- terminal: `true`
-## Recently Completed
+- `confirmed` — repo boundary prose still stays honest and does not drift into a fake smart-form control-plane claim:
+  - `README.md`
+  - `docs/architecture/adapter-feishu-architecture.md`
+  - `test/docs-boundary.test.ts`
+- `fixes landed` — none; this audit pass did not find an in-scope code or doc gap requiring repair before closeout routing
 
-- predecessor pack `adapter-feishu-standalone-multi-service-bootstrap-2026-04-19` is closed and provides the runtime/message-delivery baseline this new POC builds on
-- `FW1.S1` completed: landed `src/channels/feishu/bitableClient.ts`, froze `ADAPTER_FEISHU_FORM_*` config/auth contract, and added targeted test coverage plus export wiring
-- `FW1.S2` completed: landed form-webhook ingress, route wiring, runtime dependency injection, and regression coverage for existing server surfaces
-- `FW1.S3` completed: added optional form-schema preflight, same-table serialized write protection, and proof for required/hidden/unknown-field behavior
-- `FW1.S4` completed: landed the operator-facing form integration runbook, refreshed the root README and `.env.example`, added concrete curl/payload examples, and recorded full verification truth
+## 3. Verification evidence
 
-## Next Step
+Targeted audit proof:
 
-- `execution-reality-audit` review on `FW1.S4`
+- command:
+  - `npm test -- test/channels/feishu/bitableClient.test.ts test/config.test.ts test/server/formWebhook.test.ts test/server/httpHost.test.ts test/runtime.test.ts test/state/tableWriteQueue.test.ts test/docs-boundary.test.ts`
+- result:
+  - 7 test files passed
+  - 29 tests passed
 
-## Blockers
+Full regression truth reused from the pushed implementation head:
 
-- none at execution time; live Feishu permission/schema reality remains the first expected external blocker class
-
-## Gate State
-
-- pack_created: `yes`
-- active_slice_done: `yes`
-- review_handoff_ready: `yes`
-- machine_anchor_aligned: `yes`
-- predecessor_pack_reopened: `no`
-
-## Latest Evidence
-
-- `README.md` now points to the active form-webhook pack and documents `/providers/form-webhook` as a bounded existing-Base record-write surface
-- `docs/runbook/adapter-feishu-form-integration.md` now explains app credentials, Base/table/form prerequisites, auth, default target vs override, schema validation, response classes, and troubleshooting
-- `.env.example` now documents the separated form auth token and the `APP_TOKEN + TABLE_ID` pairing rule for the default target
-- `npm run verify` passed after the docs writeback:
+- command:
+  - `npm run verify`
+- result:
   - `tsc -p tsconfig.json` passed
   - `vitest run` passed
   - 26 test files passed
   - 69 tests passed
-- repo boundary still confirms current adapter scope is standalone Feishu/Lark channel service, not a general smart-form control plane
-- same-table serialization remains intentionally bounded to in-process scope; cross-process coordination is still out of scope
 
-## Notes
+Repo-state proof:
 
-- this pack intentionally treats “write form-backed table record” as the POC v1 primary truth
-- future work for form create/control surfaces should be a successor pack unless it is strictly required to close `FW1.S1`~`FW1.S4`
-- review routes to `execution-reality-audit`; closeout uses the repo-local closeout prompt surface
+- `git status -sb` shows clean `main...origin/main`
+- `git log -1 --oneline --decorate` shows `0ee6033 (HEAD -> main, origin/main, origin/HEAD) feat: add feishu form webhook record-write poc`
+
+## 4. Completion verdict by slice
+
+| slice | verdict | evidence |
+|---|---|---|
+| `FW1.S1` | complete | Bitable wrapper seam, form env contract, and config/client tests are landed |
+| `FW1.S2` | complete | `/providers/form-webhook` dispatch, route wiring, runtime wiring, and stable response tests are landed |
+| `FW1.S3` | complete | optional schema preflight and same-table in-process serialization are landed and covered |
+| `FW1.S4` | complete | runbook, README, env contract, and verification writeback are landed |
+| `wave-5/5` | review accepted | reality audit found claims supported by code, tests, docs, and current repo state; no successor pack is required for the scoped POC |
+
+## 5. Closeout criteria check
+
+| criterion | state | evidence |
+|---|---|---|
+| bounded form-write surface exists | pass | `src/server/formWebhook.ts`, `src/runtime.ts`, `src/server/httpHost.ts` |
+| Feishu Bitable seam stays local and honest | pass | `src/channels/feishu/bitableClient.ts`, `test/channels/feishu/bitableClient.test.ts` |
+| auth/env/default-target contract is explicit | pass | `src/config.ts`, `.env.example`, `test/config.test.ts` |
+| schema-preflight + same-table safety are bounded and proven | pass | `src/server/formWebhook.ts`, `src/state/tableWriteQueue.ts`, related tests |
+| operator-facing docs match code truth | pass | `README.md`, `docs/runbook/adapter-feishu-form-integration.md`, `test/docs-boundary.test.ts` |
+| repo verification is green on the pushed head | pass | targeted 7-file audit suite + full `npm run verify` |
+
+## 6. Residuals / honest boundaries
+
+1. Live Feishu app permission and Base/schema reality remain the first external blocker class for real tenant usage; this does not block honest closeout of the local POC pack.
+2. Same-table serialization is intentionally bounded to in-process scope; cross-process / cross-instance coordination remains out of scope.
+3. This pack still does not claim form create/patch/view control, attachment upload, or generic smart-form orchestration.
+4. Any future expansion beyond existing Base/table record write plus optional preflight should be tracked in a successor pack instead of reopening this completed pack.
+
+## 7. Review verdict and next step
+
+- verdict: `accept_with_residuals`
+- evidence added:
+  - targeted form-webhook audit suite passed (`7` files / `29` tests)
+  - full regression truth remains green (`26` files / `69` tests)
+  - repo is clean and pushed at `0ee6033`
+- fixes landed:
+  - none
+- successor residuals:
+  - none required for the scoped POC objective
+
+No further execution is required inside this plan pack.
+
+Next route:
+
+- repo-local closeout prompt surface
+
+Create a successor pack only if the user later wants one of:
+
+- live tenant smoke / permissions hardening beyond the current local proof
+- form metadata control surfaces beyond optional preflight
+- cross-instance coordination or broader platform/release hardening
