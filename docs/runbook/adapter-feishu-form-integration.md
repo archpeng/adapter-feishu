@@ -314,4 +314,6 @@ The same `clientToken` already succeeded recently for the same `appToken:tableId
 - `README.md`
 - `docs/runbook/adapter-feishu-local-runbook.md`
 - `docs/runbook/adapter-feishu-provider-integration.md`
-- `docs/plan/adapter-feishu-form-webhook-poc-v1-2026-04-23_PLAN.md`
+- `docs/plan/README.md`
+- `docs/archive/plan/adapter-feishu-form-webhook-poc-v1-2026-04-23_PLAN.md`
+- `docs/archive/plan/adapter-feishu-form-webhook-poc-v1-2026-04-23_CLOSEOUT.md`

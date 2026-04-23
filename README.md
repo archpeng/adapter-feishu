@@ -65,17 +65,21 @@ Boundary anchors frozen for this repo:
 
 ## Current implementation state
 
-Active planning pack:
+There is currently **no active planning pack** in `docs/plan/*`.
 
-- `docs/plan/adapter-feishu-form-webhook-poc-v1-2026-04-23_PLAN.md`
-- `docs/plan/adapter-feishu-form-webhook-poc-v1-2026-04-23_STATUS.md`
-- `docs/plan/adapter-feishu-form-webhook-poc-v1-2026-04-23_WORKSET.md`
+Closed/archived plan packs:
 
-Predecessor pack already closed:
-
-- `docs/plan/adapter-feishu-standalone-multi-service-bootstrap-2026-04-19_PLAN.md`
-- `docs/plan/adapter-feishu-standalone-multi-service-bootstrap-2026-04-19_STATUS.md`
-- `docs/plan/adapter-feishu-standalone-multi-service-bootstrap-2026-04-19_WORKSET.md`
+- latest closed pack:
+  - `docs/archive/plan/adapter-feishu-form-webhook-poc-v1-2026-04-23_PLAN.md`
+  - `docs/archive/plan/adapter-feishu-form-webhook-poc-v1-2026-04-23_STATUS.md`
+  - `docs/archive/plan/adapter-feishu-form-webhook-poc-v1-2026-04-23_WORKSET.md`
+  - `docs/archive/plan/adapter-feishu-form-webhook-poc-v1-2026-04-23_CLOSEOUT.md`
+- archived predecessor pack:
+  - `docs/archive/plan/adapter-feishu-standalone-multi-service-bootstrap-2026-04-19_PLAN.md`
+  - `docs/archive/plan/adapter-feishu-standalone-multi-service-bootstrap-2026-04-19_STATUS.md`
+  - `docs/archive/plan/adapter-feishu-standalone-multi-service-bootstrap-2026-04-19_WORKSET.md`
+- live placeholder/control-plane entry:
+  - `docs/plan/README.md`
 
 Current repo truth:
 
@@ -223,7 +227,8 @@ test/
 ## Architecture references
 
 - `docs/architecture/adapter-feishu-architecture.md`
-- `docs/plan/adapter-feishu-form-webhook-poc-v1-2026-04-23_PLAN.md`
+- `docs/plan/README.md`
+- `docs/archive/plan/adapter-feishu-form-webhook-poc-v1-2026-04-23_CLOSEOUT.md`
 - `docs/runbook/adapter-feishu-provider-integration.md`
 - `docs/runbook/adapter-feishu-form-integration.md`
 - `docs/runbook/adapter-feishu-warning-agent-onboarding.md`
