@@ -6,6 +6,42 @@ import { createAlertDeduper } from '../../src/state/dedupe.js';
 import { dispatchProviderWebhookRequest } from '../../src/server/providerWebhook.js';
 
 describe('dispatchProviderWebhookRequest', () => {
+  it('rejects provider pushes without the configured auth token', async () => {
+    const registry = createProviderRegistry({
+      allowedProviderKeys: ['warning-agent'],
+      defaultProviderKey: 'warning-agent'
+    });
+    registerProvider(registry, createWarningAgentProvider());
+    const router = createProviderRouter(registry);
+
+    const response = await dispatchProviderWebhookRequest(
+      {
+        method: 'POST',
+        pathname: '/providers/webhook',
+        rawBody: JSON.stringify({
+          reportId: 'report-9',
+          runId: 'wr_123',
+          summary: 'cpu anomaly investigated'
+        })
+      },
+      {
+        providerRouter: router,
+        replySink: {
+          sendNotification: vi.fn()
+        },
+        authToken: 'provider-token-1'
+      }
+    );
+
+    expect(response).toEqual({
+      statusCode: 401,
+      body: {
+        code: 401,
+        message: 'unauthorized'
+      }
+    });
+  });
+
   it('routes a provider notification and suppresses duplicates through the dedupe window', async () => {
     const replySink = {
       sendNotification: vi.fn().mockResolvedValue({
@@ -35,6 +71,9 @@ describe('dispatchProviderWebhookRequest', () => {
     const request = {
       method: 'POST',
       pathname: '/providers/webhook',
+      headers: {
+        authorization: 'Bearer provider-token-1'
+      },
       rawBody: JSON.stringify({
         reportId: 'report-9',
         runId: 'wr_123',
@@ -45,6 +84,7 @@ describe('dispatchProviderWebhookRequest', () => {
     const first = await dispatchProviderWebhookRequest(request, {
       providerRouter: router,
       replySink,
+      authToken: 'provider-token-1',
       deduper,
       dedupeKeyFromPayload(payload) {
         return typeof payload.reportId === 'string' ? payload.reportId : undefined;
@@ -58,6 +98,7 @@ describe('dispatchProviderWebhookRequest', () => {
     const second = await dispatchProviderWebhookRequest(request, {
       providerRouter: router,
       replySink,
+      authToken: 'provider-token-1',
       deduper,
       dedupeKeyFromPayload(payload) {
         return typeof payload.reportId === 'string' ? payload.reportId : undefined;
@@ -86,5 +127,51 @@ describe('dispatchProviderWebhookRequest', () => {
       }
     });
     expect(replySink.sendNotification).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns 502 when downstream delivery fails instead of throwing out of the request path', async () => {
+    const replySink = {
+      sendNotification: vi.fn().mockRejectedValue(new Error('feishu delivery failed'))
+    };
+    const registry = createProviderRegistry({
+      allowedProviderKeys: ['warning-agent'],
+      defaultProviderKey: 'warning-agent'
+    });
+    registerProvider(
+      registry,
+      createWarningAgentProvider({
+        defaultTarget: {
+          channel: 'feishu',
+          chatId: 'oc-chat-1'
+        }
+      })
+    );
+    const router = createProviderRouter(registry);
+
+    const response = await dispatchProviderWebhookRequest(
+      {
+        method: 'POST',
+        pathname: '/providers/webhook',
+        rawBody: JSON.stringify({
+          reportId: 'report-10',
+          runId: 'wr_124',
+          summary: 'cpu anomaly investigated'
+        })
+      },
+      {
+        providerRouter: router,
+        replySink
+      }
+    );
+
+    expect(response).toEqual({
+      statusCode: 502,
+      body: {
+        code: 502,
+        providerKey: 'warning-agent',
+        message: 'provider_delivery_failed',
+        error: 'feishu delivery failed'
+      }
+    });
   });
 });

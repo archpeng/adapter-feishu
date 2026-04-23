@@ -18,6 +18,7 @@ export interface AdapterConfig {
     keys: string[];
     defaultProvider?: string;
     allowProviderOverride: boolean;
+    webhookAuthToken?: string;
   };
   state: {
     dedupeTtlSeconds: number;
@@ -118,7 +119,8 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     providers: {
       keys: providerKeys,
       defaultProvider,
-      allowProviderOverride: parseBoolean(env, 'ADAPTER_FEISHU_ALLOW_PROVIDER_OVERRIDE', false)
+      allowProviderOverride: parseBoolean(env, 'ADAPTER_FEISHU_ALLOW_PROVIDER_OVERRIDE', false),
+      webhookAuthToken: env.ADAPTER_FEISHU_PROVIDER_WEBHOOK_AUTH_TOKEN?.trim() || undefined
     },
     state: {
       dedupeTtlSeconds: parsePositiveInteger(env, 'ADAPTER_FEISHU_DEDUPE_TTL_SECONDS', 300),

@@ -20,22 +20,19 @@ export interface RenderInteractiveCardParams {
 
 export function renderTextCard(params: RenderTextCardParams): Record<string, unknown> {
   return {
-    msg_type: 'interactive',
-    card: {
-      header: {
-        template: 'blue',
-        title: {
-          tag: 'plain_text',
-          content: params.title
-        }
-      },
-      elements: [
-        {
-          tag: 'markdown',
-          content: params.content
-        }
-      ]
-    }
+    header: {
+      template: 'blue',
+      title: {
+        tag: 'plain_text',
+        content: params.title
+      }
+    },
+    elements: [
+      {
+        tag: 'markdown',
+        content: params.content
+      }
+    ]
   };
 }
 
@@ -86,17 +83,14 @@ export function renderInteractiveCard(params: RenderInteractiveCardParams): Reco
   }
 
   return {
-    msg_type: 'interactive',
-    card: {
-      header: {
-        template: mapSeverityTemplate(params.severity),
-        title: {
-          tag: 'plain_text',
-          content: params.title
-        }
-      },
-      elements
-    }
+    header: {
+      template: mapSeverityTemplate(params.severity),
+      title: {
+        tag: 'plain_text',
+        content: params.title
+      }
+    },
+    elements
   };
 }
 

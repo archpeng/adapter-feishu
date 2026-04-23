@@ -50,29 +50,15 @@ function normalizeFacts(payload: WarningAgentNotificationPayload): ProviderFact[
     facts.push(...payload.facts);
   }
 
+  if (payload.reportUrl) {
+    facts.push({ label: 'report url', value: payload.reportUrl });
+  }
+
   return facts;
 }
 
 function normalizeActions(payload: WarningAgentNotificationPayload): ProviderAction[] | undefined {
-  if (payload.actions && payload.actions.length > 0) {
-    return payload.actions;
-  }
-
-  if (payload.reportUrl) {
-    return [
-      {
-        actionId: 'open-report',
-        label: 'Open report',
-        style: 'primary',
-        payload: {
-          reportId: payload.reportId,
-          reportUrl: payload.reportUrl
-        }
-      }
-    ];
-  }
-
-  return undefined;
+  return payload.actions && payload.actions.length > 0 ? payload.actions : undefined;
 }
 
 function normalizeMetadata(payload: WarningAgentNotificationPayload): ProviderNotification['metadata'] {

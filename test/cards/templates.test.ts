@@ -8,9 +8,8 @@ describe('renderTextCard', () => {
       content: 'bootstrap complete'
     });
 
-    expect(card.msg_type).toBe('interactive');
-    expect(card.card.header.title.content).toBe('adapter-feishu');
-    expect(JSON.stringify(card.card.elements)).toContain('bootstrap complete');
+    expect(card.header.title.content).toBe('adapter-feishu');
+    expect(JSON.stringify(card.elements)).toContain('bootstrap complete');
   });
 });
 
@@ -35,9 +34,8 @@ describe('renderInteractiveCard', () => {
       ]
     });
 
-    expect(card.msg_type).toBe('interactive');
-    expect(card.card.header.template).toBe('yellow');
-    const body = JSON.stringify(card.card.elements);
+    expect(card.header.template).toBe('yellow');
+    const body = JSON.stringify(card.elements);
     expect(body).toContain('deployment drift');
     expect(body).toContain('prod-cn-1');
     expect(body).toContain('Open report');

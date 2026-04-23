@@ -1,3 +1,4 @@
+import type { IncomingHttpHeaders } from 'node:http';
 import type { JsonRecord } from '../core/contracts.js';
 import type { ProviderNotificationSink } from '../providers/contracts.js';
 import type { ProviderRouteResolution, ProviderRouter } from '../providers/router.js';
@@ -6,6 +7,7 @@ import type { AlertDeduper } from '../state/dedupe.js';
 export interface ProviderWebhookRequest {
   method?: string;
   pathname?: string;
+  headers?: IncomingHttpHeaders;
   rawBody: string;
 }
 
@@ -18,6 +20,7 @@ export interface ProviderWebhookDispatchDeps {
   providerRouter: ProviderRouter;
   replySink: ProviderNotificationSink;
   defaultTarget?: import('../core/contracts.js').DeliveryTarget;
+  authToken?: string;
   deduper?: AlertDeduper;
   dedupeKeyFromPayload?: (
     payload: JsonRecord,
@@ -37,6 +40,10 @@ export async function dispatchProviderWebhookRequest(
 
   if (request.method !== 'POST') {
     return { statusCode: 405, body: { code: 405, message: 'method_not_allowed' } };
+  }
+
+  if (!isAuthorizedProviderRequest(request.headers, deps.authToken)) {
+    return { statusCode: 401, body: { code: 401, message: 'unauthorized' } };
   }
 
   const payload = parseJsonRecord(request.rawBody);
@@ -73,7 +80,23 @@ export async function dispatchProviderWebhookRequest(
     replySink: deps.replySink,
     defaultTarget: deps.defaultTarget,
     now: deps.now
+  }).catch((error: unknown) => {
+    return {
+      error
+    };
   });
+
+  if ('error' in result) {
+    return {
+      statusCode: 502,
+      body: {
+        code: 502,
+        providerKey: resolution.providerKey,
+        message: 'provider_delivery_failed',
+        error: errorMessage(result.error)
+      }
+    };
+  }
 
   return {
     statusCode: 202,
@@ -96,4 +119,29 @@ function parseJsonRecord(rawBody: string): JsonRecord | null {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+function isAuthorizedProviderRequest(
+  headers: IncomingHttpHeaders | undefined,
+  expectedToken: string | undefined
+): boolean {
+  if (!expectedToken) {
+    return true;
+  }
+
+  const authorization = headerValue(headers, 'authorization');
+  if (authorization?.startsWith('Bearer ')) {
+    return authorization.slice('Bearer '.length) === expectedToken;
+  }
+
+  return headerValue(headers, 'x-adapter-provider-token') === expectedToken;
+}
+
+function headerValue(headers: IncomingHttpHeaders | undefined, key: string): string | undefined {
+  const value = headers?.[key];
+  return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'unknown_error';
 }

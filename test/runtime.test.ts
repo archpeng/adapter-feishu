@@ -20,7 +20,8 @@ function createConfig(ingressMode: AdapterConfig['feishu']['ingressMode']): Adap
     providers: {
       keys: ['warning-agent'],
       defaultProvider: 'warning-agent',
-      allowProviderOverride: false
+      allowProviderOverride: false,
+      webhookAuthToken: undefined
     },
     state: {
       dedupeTtlSeconds: 300,

@@ -21,18 +21,15 @@ describe('renderWarningAgentDiagnosisCard', () => {
     );
 
     expect(card).toMatchObject({
-      msg_type: 'interactive',
-      card: {
-        header: {
-          template: 'red',
-          title: {
-            content: 'warning-agent diagnosis report-9'
-          }
+      header: {
+        template: 'red',
+        title: {
+          content: 'warning-agent diagnosis report-9'
         }
       }
     });
 
-    expect((card.card as { elements: unknown[] }).elements).toEqual(
+    expect((card as { elements: unknown[] }).elements).toEqual(
       expect.arrayContaining([
         {
           tag: 'markdown',

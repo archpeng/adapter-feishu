@@ -79,9 +79,7 @@ describe('createReplySink', () => {
     expect(client.sendCard).toHaveBeenCalledWith(
       { channel: 'feishu', openId: 'ou-user-1' },
       expect.objectContaining({
-        card: expect.objectContaining({
-          header: expect.objectContaining({ template: 'yellow' })
-        })
+        header: expect.objectContaining({ template: 'yellow' })
       })
     );
     expect(result).toMatchObject({

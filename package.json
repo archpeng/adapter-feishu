@@ -10,6 +10,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "node dist/main.js",
+    "smoke:provider-webhook": "node scripts/smoke-provider-webhook.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "verify": "npm run build && npm run test"

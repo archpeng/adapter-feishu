@@ -83,6 +83,7 @@ export function createAdapterRuntime(
   config: AdapterConfig,
   deps: AdapterRuntimeDeps = defaultDeps
 ): AdapterRuntime {
+  const logInboundTurns = process.env.ADAPTER_FEISHU_LOG_INBOUND_TURNS === 'true';
   const client = deps.createClient({
     appId: config.feishu.appId,
     appSecret: config.feishu.appSecret
@@ -111,6 +112,26 @@ export function createAdapterRuntime(
   const now = () => new Date().toISOString();
 
   const handleTurn: Parameters<typeof createLongConnectionIngress>[1] = async (turn) => {
+    if (logInboundTurns) {
+      console.log(
+        JSON.stringify(
+          {
+            event: 'adapter_feishu_inbound_turn',
+            turnId: turn.turnId,
+            intent: turn.intent,
+            providerKey: turn.providerKey,
+            actorOpenId: turn.actor?.openId,
+            actorUserId: turn.actor?.userId,
+            chatId: turn.target.chatId,
+            messageId: turn.target.messageId,
+            text: turn.text
+          },
+          null,
+          2
+        )
+      );
+    }
+
     const resolution = providerRouter.resolve(turn);
     const provider = resolution.provider.definition;
 
@@ -166,6 +187,7 @@ export function createAdapterRuntime(
           return dispatchProviderWebhookRequest(requestBody, {
             providerRouter,
             replySink,
+            authToken: config.providers.webhookAuthToken,
             deduper,
             dedupeKeyFromPayload(payload, resolution) {
               if (
@@ -217,15 +239,23 @@ async function handleNodeRequest(
   res: ServerResponse,
   handleRequest: (request: AdapterHttpRequest) => Promise<AdapterHttpResponse>
 ): Promise<void> {
-  const rawBody = await readRequestBody(req);
-  const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
-  const response = await handleRequest({
-    method: req.method,
-    pathname: url.pathname,
-    headers: req.headers,
-    rawBody
-  });
-  respondJson(res, response.statusCode, response.body);
+  try {
+    const rawBody = await readRequestBody(req);
+    const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
+    const response = await handleRequest({
+      method: req.method,
+      pathname: url.pathname,
+      headers: req.headers,
+      rawBody
+    });
+    respondJson(res, response.statusCode, response.body);
+  } catch (error) {
+    console.error('adapter-feishu request handling failed', error);
+    respondJson(res, 500, {
+      code: 500,
+      message: 'internal_error'
+    });
+  }
 }
 
 function listenServer(server: Server, host: string, port: number): Promise<void> {

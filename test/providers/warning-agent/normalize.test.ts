@@ -40,19 +40,10 @@ describe('normalizeWarningAgentNotification', () => {
       facts: [
         { label: 'report', value: 'report-9' },
         { label: 'run', value: 'wr_123' },
-        { label: 'incident', value: 'incident-1' }
+        { label: 'incident', value: 'incident-1' },
+        { label: 'report url', value: 'https://warning-agent.local/reports/report-9' }
       ],
-      actions: [
-        {
-          actionId: 'open-report',
-          label: 'Open report',
-          style: 'primary',
-          payload: {
-            reportId: 'report-9',
-            reportUrl: 'https://warning-agent.local/reports/report-9'
-          }
-        }
-      ],
+      actions: undefined,
       dedupeKey: 'incident-1',
       rawPayload: payload,
       metadata: {

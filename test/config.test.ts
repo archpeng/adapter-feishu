@@ -24,7 +24,8 @@ describe('loadConfig', () => {
     expect(config.providers).toEqual({
       keys: ['warning-agent'],
       defaultProvider: 'warning-agent',
-      allowProviderOverride: false
+      allowProviderOverride: false,
+      webhookAuthToken: undefined
     });
     expect(config.state).toEqual({
       dedupeTtlSeconds: 300,
@@ -40,6 +41,7 @@ describe('loadConfig', () => {
       ADAPTER_FEISHU_PROVIDER_KEYS: 'warning-agent, incident-bot',
       ADAPTER_FEISHU_DEFAULT_PROVIDER: 'incident-bot',
       ADAPTER_FEISHU_ALLOW_PROVIDER_OVERRIDE: 'true',
+      ADAPTER_FEISHU_PROVIDER_WEBHOOK_AUTH_TOKEN: 'provider-token-1',
       ADAPTER_FEISHU_DEDUPE_TTL_SECONDS: '60',
       ADAPTER_FEISHU_PENDING_TTL_SECONDS: '180'
     });
@@ -48,7 +50,8 @@ describe('loadConfig', () => {
     expect(config.providers).toEqual({
       keys: ['warning-agent', 'incident-bot'],
       defaultProvider: 'incident-bot',
-      allowProviderOverride: true
+      allowProviderOverride: true,
+      webhookAuthToken: 'provider-token-1'
     });
     expect(config.state).toEqual({
       dedupeTtlSeconds: 60,

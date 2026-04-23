@@ -46,6 +46,7 @@ Boundary anchors frozen for this repo:
 - minimal pending callback and dedupe state
 - provider integrations under `src/providers/**`
 - `warning-agent` as the first provider
+- provider webhook auth for backend-to-adapter pushes
 
 ## What is out of scope
 
@@ -69,6 +70,7 @@ Current repo truth:
 - provider routing, bounded dedupe, and pending callback state are landed under `src/providers/**` and `src/state/**`
 - provider webhook, card-action dispatch, and health routing are landed under `src/server/**`
 - the first concrete provider path is notify-first `warning-agent -> adapter-feishu -> Feishu/Lark`
+- deployed provider pushes can be protected with a shared webhook auth token
 - the remaining blocked path is alert-forward orchestration, which stays out of scope until `warning-agent` exposes a stable external alert/report API
 
 ## Repository layout
@@ -111,6 +113,7 @@ docs/
   architecture/adapter-feishu-architecture.md
   runbook/adapter-feishu-local-runbook.md
   runbook/adapter-feishu-provider-integration.md
+  runbook/adapter-feishu-warning-agent-onboarding.md
 
 test/
   app.test.ts
@@ -141,11 +144,16 @@ Remaining extension surface:
 4. Run verification:
    - `npm run build`
    - `npm test`
+5. Optional real Feishu smoke test:
+   - set `ADAPTER_FEISHU_SMOKE_CHAT_ID` or `ADAPTER_FEISHU_SMOKE_OPEN_ID`
+   - run `npm run smoke:provider-webhook`
 
 ## Architecture references
 
 - `docs/architecture/adapter-feishu-architecture.md`
 - `docs/plan/adapter-feishu-standalone-multi-service-bootstrap-2026-04-19_PLAN.md`
+- `docs/runbook/adapter-feishu-provider-integration.md`
+- `docs/runbook/adapter-feishu-warning-agent-onboarding.md`
 
 ## License
 

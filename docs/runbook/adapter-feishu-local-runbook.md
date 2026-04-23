@@ -85,6 +85,31 @@ Run:
 
 - `docker run --rm -p 8787:8787 --env-file .env adapter-feishu:local`
 
+## Provider webhook auth
+
+For deployed environments, set:
+
+- `ADAPTER_FEISHU_PROVIDER_WEBHOOK_AUTH_TOKEN=<shared-token>`
+
+When enabled, provider pushes to `/providers/webhook` must send either:
+
+- `Authorization: Bearer <shared-token>`
+- `x-adapter-provider-token: <shared-token>`
+
+## Real Feishu smoke test
+
+With a real Feishu app configured in `.env` and the adapter running:
+
+1. set a real target in the environment:
+   - `ADAPTER_FEISHU_SMOKE_CHAT_ID=<oc_xxx>`
+   - or `ADAPTER_FEISHU_SMOKE_OPEN_ID=<ou_xxx>`
+2. if provider webhook auth is enabled, set:
+   - `ADAPTER_FEISHU_PROVIDER_WEBHOOK_AUTH_TOKEN=<shared-token>`
+3. run:
+   - `npm run smoke:provider-webhook`
+
+This uses the real `/providers/webhook` path and verifies end-to-end provider delivery into Feishu.
+
 ## Honest boundaries
 
 - provider webhook notify-first delivery is supported
