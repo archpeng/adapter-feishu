@@ -2,25 +2,26 @@
 
 ## Active Pack
 
-- none
+- `docs/plan/adapter-feishu-managed-form-routing-v1-2026-04-24_PLAN.md`
+- `docs/plan/adapter-feishu-managed-form-routing-v1-2026-04-24_STATUS.md`
+- `docs/plan/adapter-feishu-managed-form-routing-v1-2026-04-24_WORKSET.md`
 
 ## Current Active Slice
 
-- none
+- `MFR1.S1`
 
 ## Current Wave
 
-- none; the latest form-webhook POC pack has been fully closed and archived
+- `wave-1 / contract freeze`
 
 ## Intended Handoff
 
-- none
+- `execute-plan`
 
 ## Notes
 
-- archived plan packs now live under `docs/archive/plan/`
-- latest closeout record:
+- this repo remains single-root machine truth under `docs/plan/*`; do not create a parallel control-plane mirror
+- predecessor closeout record:
   - `docs/archive/plan/adapter-feishu-form-webhook-poc-v1-2026-04-23_CLOSEOUT.md`
-- archived predecessor baseline:
-  - `docs/archive/plan/adapter-feishu-standalone-multi-service-bootstrap-2026-04-19_*`
-- start a new successor pack in `docs/plan/*` only when new scoped work is explicitly opened
+- this successor pack opens the bounded Route A workstream for managed multi-form routing on top of the already-landed form-webhook surface
+- review remains `execution-reality-audit`; terminal closeout uses the repo-local closeout prompt surface
