@@ -66,7 +66,15 @@ Boundary anchors frozen for this repo:
 
 ## Current implementation state
 
-There is currently **no active plan pack** in `docs/plan/*`; `docs/plan/README.md` is the live no-active-pack placeholder.
+There is currently an **active PMS smart-intake plan pack** in `docs/plan/*` that converts `docs/roadmap/README.md` Wave 1-3 into executable work:
+
+- active pack:
+  - `docs/plan/adapter-feishu-pms-smart-intake-v1-2026-04-24_PLAN.md`
+  - `docs/plan/adapter-feishu-pms-smart-intake-v1-2026-04-24_STATUS.md`
+  - `docs/plan/adapter-feishu-pms-smart-intake-v1-2026-04-24_WORKSET.md`
+- active slice: `S1`
+- intended handoff: `execute-plan`
+- scope: PMS managed form registry contract, PMS Base schema/view contract, and test-first managed routing hardening only
 
 Closed/archived plan packs:
 
@@ -84,7 +92,7 @@ Closed/archived plan packs:
   - `docs/archive/plan/adapter-feishu-standalone-multi-service-bootstrap-2026-04-19_PLAN.md`
   - `docs/archive/plan/adapter-feishu-standalone-multi-service-bootstrap-2026-04-19_STATUS.md`
   - `docs/archive/plan/adapter-feishu-standalone-multi-service-bootstrap-2026-04-19_WORKSET.md`
-- live placeholder/control-plane entry:
+- live control-plane entry:
   - `docs/plan/README.md`
 
 Current repo truth:
