@@ -12,6 +12,13 @@ There is currently **no active pack** in `docs/plan/*`.
 
 ## Archived packs
 
+### PMS smart intake v1
+
+- `adapter-feishu-pms-smart-intake-v1-2026-04-24_PLAN.md`
+- `adapter-feishu-pms-smart-intake-v1-2026-04-24_STATUS.md`
+- `adapter-feishu-pms-smart-intake-v1-2026-04-24_WORKSET.md`
+- `adapter-feishu-pms-smart-intake-v1-2026-04-24_CLOSEOUT.md`
+
 ### standalone bootstrap baseline
 
 - `adapter-feishu-standalone-multi-service-bootstrap-2026-04-19_PLAN.md`

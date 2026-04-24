@@ -1,0 +1,86 @@
+{
+  "version": 1,
+  "forms": {
+    "pms-checkout": {
+      "enabled": true,
+      "target": {
+        "appToken": "example_pms_base_app_token",
+        "tableId": "example_pms_operation_requests_table",
+        "formId": "example_pms_checkout_form"
+      },
+      "fieldMap": {
+        "roomNumber": "RoomNumber",
+        "operator": "Operator",
+        "reservationCode": "ReservationCode",
+        "checkoutAt": "RequestedAt",
+        "reason": "Reason",
+        "notes": "Notes"
+      },
+      "fixedFields": {
+        "Source": "adapter-feishu-pms-smart-intake",
+        "Ingress": "formKey:pms-checkout",
+        "Action": "CHECK_OUT",
+        "SchemaVersion": "pms-smart-intake-v1"
+      },
+      "policy": {
+        "validateFormSchemaByDefault": true,
+        "rejectUnmappedFields": true
+      }
+    },
+    "pms-maintenance-report": {
+      "enabled": true,
+      "target": {
+        "appToken": "example_pms_base_app_token",
+        "tableId": "example_pms_operation_requests_table",
+        "formId": "example_pms_maintenance_report_form"
+      },
+      "fieldMap": {
+        "roomNumber": "RoomNumber",
+        "reporter": "Operator",
+        "category": "Category",
+        "severity": "Severity",
+        "description": "Description",
+        "stopSell": "StopSellRequested",
+        "photoUrl": "AttachmentUrl",
+        "notes": "Notes"
+      },
+      "fixedFields": {
+        "Source": "adapter-feishu-pms-smart-intake",
+        "Ingress": "formKey:pms-maintenance-report",
+        "Action": "REPORT_MAINTENANCE",
+        "SchemaVersion": "pms-smart-intake-v1"
+      },
+      "policy": {
+        "validateFormSchemaByDefault": true,
+        "rejectUnmappedFields": true
+      }
+    },
+    "pms-housekeeping-done": {
+      "enabled": true,
+      "target": {
+        "appToken": "example_pms_base_app_token",
+        "tableId": "example_pms_operation_requests_table",
+        "formId": "example_pms_housekeeping_done_form"
+      },
+      "fieldMap": {
+        "roomNumber": "RoomNumber",
+        "operator": "Operator",
+        "taskId": "TaskId",
+        "finishedAt": "RequestedAt",
+        "result": "Result",
+        "inspectionRequired": "InspectionRequired",
+        "notes": "Notes"
+      },
+      "fixedFields": {
+        "Source": "adapter-feishu-pms-smart-intake",
+        "Ingress": "formKey:pms-housekeeping-done",
+        "Action": "HOUSEKEEPING_DONE",
+        "SchemaVersion": "pms-smart-intake-v1"
+      },
+      "policy": {
+        "validateFormSchemaByDefault": true,
+        "rejectUnmappedFields": true
+      }
+    }
+  }
+}

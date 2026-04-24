@@ -18,7 +18,7 @@
 | 幂等与写入安全 | `clientToken` UUIDv4 + dedupe；同表 in-process serialization | `src/state/dedupe.ts`, `src/state/tableWriteQueue.ts` |
 | 配置边界 | env-based standalone runtime config | `src/config.ts`, `.env.example` |
 | 验证基线 | `npm run verify` | `package.json`, `test/**` |
-| plan 状态 | 已创建 active execution pack：`adapter-feishu-pms-smart-intake-v1-2026-04-24`，当前 slice `S1` | `docs/plan/README.md` |
+| plan 状态 | Wave 1-3 execution pack `adapter-feishu-pms-smart-intake-v1-2026-04-24` 已完成并归档；当前无 active pack | `docs/plan/README.md`, `docs/archive/plan/adapter-feishu-pms-smart-intake-v1-2026-04-24_CLOSEOUT.md` |
 
 ## 2. 架构规范：后续路线必须遵守
 
@@ -275,27 +275,29 @@ pms operation request table = PMS 智能表单底表 / command intake table
 
 ## 10. 下一步建议
 
-当前已经创建独立 active plan pack：
+Wave 1-3 的独立 execution pack 已完成并归档：
 
 ```text
-docs/plan/adapter-feishu-pms-smart-intake-v1-2026-04-24_PLAN.md
-docs/plan/adapter-feishu-pms-smart-intake-v1-2026-04-24_STATUS.md
-docs/plan/adapter-feishu-pms-smart-intake-v1-2026-04-24_WORKSET.md
+docs/archive/plan/adapter-feishu-pms-smart-intake-v1-2026-04-24_PLAN.md
+docs/archive/plan/adapter-feishu-pms-smart-intake-v1-2026-04-24_STATUS.md
+docs/archive/plan/adapter-feishu-pms-smart-intake-v1-2026-04-24_WORKSET.md
+docs/archive/plan/adapter-feishu-pms-smart-intake-v1-2026-04-24_CLOSEOUT.md
 ```
 
-首个 plan 只覆盖 Wave 1-3，不直接进入 workflow 状态机：
+已完成范围只覆盖 Wave 1-3，未直接进入 workflow 状态机：
 
 ```text
 S1: 增加 PMS registry example 和 docs mapping
-S2: 补多 formKey managed routing tests
-S3: 更新 runbook，证明 CHECK_OUT / REPORT_MAINTENANCE / HOUSEKEEPING_DONE smart intake
+S2: 增加 PMS Base setup contract
+S3: 补 PMS managed routing tests，证明 CHECK_OUT / REPORT_MAINTENANCE / HOUSEKEEPING_DONE smart intake
 ```
 
-首个 plan 的完成定义：
+该 pack 的完成证据：
 
 ```text
-- 不改 adapter core boundary
+- 未改变 adapter core boundary
 - 多 PMS formKey 可通过 registry 表达
+- PMS Base setup contract 足够 operator 创建 sandbox Base
 - npm run verify 通过
-- sandbox smoke payload 示例可直接复制执行
+- 真实 Feishu sandbox smoke 仍 defer 到 Wave 4 或 successor pack
 ```

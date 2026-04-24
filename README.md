@@ -66,24 +66,21 @@ Boundary anchors frozen for this repo:
 
 ## Current implementation state
 
-There is currently an **active PMS smart-intake plan pack** in `docs/plan/*` that converts `docs/roadmap/README.md` Wave 1-3 into executable work:
-
-- active pack:
-  - `docs/plan/adapter-feishu-pms-smart-intake-v1-2026-04-24_PLAN.md`
-  - `docs/plan/adapter-feishu-pms-smart-intake-v1-2026-04-24_STATUS.md`
-  - `docs/plan/adapter-feishu-pms-smart-intake-v1-2026-04-24_WORKSET.md`
-- active slice: `S1`
-- intended handoff: `execute-plan`
-- scope: PMS managed form registry contract, PMS Base schema/view contract, and test-first managed routing hardening only
+There is currently **no active plan pack** in `docs/plan/*`. The PMS smart-intake Wave 1-3 pack is closed and archived.
 
 Closed/archived plan packs:
 
 - latest closed pack:
+  - `docs/archive/plan/adapter-feishu-pms-smart-intake-v1-2026-04-24_PLAN.md`
+  - `docs/archive/plan/adapter-feishu-pms-smart-intake-v1-2026-04-24_STATUS.md`
+  - `docs/archive/plan/adapter-feishu-pms-smart-intake-v1-2026-04-24_WORKSET.md`
+  - `docs/archive/plan/adapter-feishu-pms-smart-intake-v1-2026-04-24_CLOSEOUT.md`
+- previous closed pack:
   - `docs/archive/plan/adapter-feishu-managed-form-routing-v1-2026-04-24_PLAN.md`
   - `docs/archive/plan/adapter-feishu-managed-form-routing-v1-2026-04-24_STATUS.md`
   - `docs/archive/plan/adapter-feishu-managed-form-routing-v1-2026-04-24_WORKSET.md`
   - `docs/archive/plan/adapter-feishu-managed-form-routing-v1-2026-04-24_CLOSEOUT.md`
-- previous closed pack:
+- earlier closed pack:
   - `docs/archive/plan/adapter-feishu-form-webhook-poc-v1-2026-04-23_PLAN.md`
   - `docs/archive/plan/adapter-feishu-form-webhook-poc-v1-2026-04-23_STATUS.md`
   - `docs/archive/plan/adapter-feishu-form-webhook-poc-v1-2026-04-23_WORKSET.md`

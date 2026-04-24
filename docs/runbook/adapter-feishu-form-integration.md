@@ -283,7 +283,55 @@ Expected success shape:
 }
 ```
 
-### 2. Legacy default target, no schema preflight
+### 2. PMS smart-intake managed formKeys
+
+S1 PMS smart-intake uses the same managed routing contract as the generic example, with a separate placeholder registry example:
+
+```env
+ADAPTER_FEISHU_FORM_REGISTRY_PATH=config/pms-form-bindings.example.json
+```
+
+`config/pms-form-bindings.example.json` is safe to commit because every target value is an obvious placeholder. Real deployments must mount or copy a tenant-specific registry with real server-side `target` values outside git. Build the target sandbox Base from `docs/runbook/adapter-feishu-pms-base-setup.md` before replacing the placeholder target values.
+
+PMS callers send only:
+
+```json
+{
+  "formKey": "pms-checkout",
+  "clientToken": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
+  "fields": {
+    "roomNumber": "0308",
+    "operator": "frontdesk-01",
+    "reservationCode": "reservation-demo-1",
+    "checkoutAt": "2026-04-24T10:30:00+08:00",
+    "reason": "guest checked out",
+    "notes": "minibar checked"
+  }
+}
+```
+
+Do not include raw `target` in PMS requests. Managed mode rejects caller-supplied `target` with `target_not_allowed_for_managed_form`; `target`, `fieldMap`, `fixedFields`, and policy truth stay in the server-side registry.
+
+S1 formKey/action contract:
+
+| `formKey` | Fixed `Action` | Caller business fields | Intended write semantics |
+|---|---|---|---|
+| `pms-checkout` | `CHECK_OUT` | `roomNumber`, `operator`, `reservationCode`, `checkoutAt`, `reason`, optional `notes` | Write a PMS operation request that a guest has checked out. It does not change room state or create housekeeping tasks inside `adapter-feishu`. |
+| `pms-maintenance-report` | `REPORT_MAINTENANCE` | `roomNumber`, `reporter`, `category`, `severity`, `description`, optional `stopSell`, `photoUrl`, `notes` | Write a maintenance report request. It does not mark rooms out-of-order or create engineering workflow state inside `adapter-feishu`. |
+| `pms-housekeeping-done` | `HOUSEKEEPING_DONE` | `roomNumber`, `operator`, `taskId`, `finishedAt`, `result`, optional `inspectionRequired`, `notes` | Write a housekeeping completion request. It does not transition rooms to clean/inspected state inside `adapter-feishu`. |
+
+Each S1 PMS binding injects these fixed fields after business-field mapping:
+
+| Fixed field | Meaning |
+|---|---|
+| `Source` | Stable adapter-origin marker, currently `adapter-feishu-pms-smart-intake` in the placeholder example. |
+| `Ingress` | The managed formKey route, for example `formKey:pms-checkout`. |
+| `Action` | Stable business action such as `CHECK_OUT`, `REPORT_MAINTENANCE`, or `HOUSEKEEPING_DONE`. |
+| `SchemaVersion` | PMS intake schema marker, currently `pms-smart-intake-v1`. |
+
+All S1 PMS bindings keep `policy.rejectUnmappedFields=true` so accidental business keys fail fast instead of silently becoming arbitrary table writes.
+
+### 3. Legacy default target, no schema preflight
 
 ```bash
 curl -X POST http://127.0.0.1:8787/providers/form-webhook \
@@ -300,7 +348,7 @@ curl -X POST http://127.0.0.1:8787/providers/form-webhook \
 
 A successful response reports `targetSource: "default"`.
 
-### 3. Legacy default target with schema preflight
+### 4. Legacy default target with schema preflight
 
 ```bash
 curl -X POST http://127.0.0.1:8787/providers/form-webhook \
@@ -324,7 +372,7 @@ If schema preflight succeeds, the success body also includes:
 }
 ```
 
-### 4. Legacy raw target override when override is enabled
+### 5. Legacy raw target override when override is enabled
 
 This request shape only works when:
 
@@ -489,6 +537,7 @@ The same `clientToken` already succeeded recently for the same `appToken:tableId
 - `README.md`
 - `.env.example`
 - `config/form-bindings.example.json`
+- `config/pms-form-bindings.example.json`
 - `docs/runbook/adapter-feishu-local-runbook.md`
 - `docs/runbook/adapter-feishu-provider-integration.md`
 - `docs/plan/README.md`
