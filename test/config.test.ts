@@ -31,7 +31,8 @@ describe('loadConfig', () => {
       webhookAuthToken: undefined,
       allowTargetOverride: false,
       userIdType: 'user_id',
-      defaultTarget: undefined
+      defaultTarget: undefined,
+      registryPath: undefined
     });
     expect(config.state).toEqual({
       dedupeTtlSeconds: 300,
@@ -54,6 +55,7 @@ describe('loadConfig', () => {
       ADAPTER_FEISHU_FORM_DEFAULT_APP_TOKEN: 'app_token_1',
       ADAPTER_FEISHU_FORM_DEFAULT_TABLE_ID: 'tbl_1',
       ADAPTER_FEISHU_FORM_DEFAULT_FORM_ID: 'form_1',
+      ADAPTER_FEISHU_FORM_REGISTRY_PATH: 'config/form-bindings.example.json',
       ADAPTER_FEISHU_DEDUPE_TTL_SECONDS: '60',
       ADAPTER_FEISHU_PENDING_TTL_SECONDS: '180'
     });
@@ -73,7 +75,8 @@ describe('loadConfig', () => {
         appToken: 'app_token_1',
         tableId: 'tbl_1',
         formId: 'form_1'
-      }
+      },
+      registryPath: 'config/form-bindings.example.json'
     });
     expect(config.state).toEqual({
       dedupeTtlSeconds: 60,

@@ -51,6 +51,7 @@ Boundary anchors frozen for this repo:
 - `warning-agent` as the first provider
 - provider webhook auth for backend-to-adapter pushes
 - `POST /providers/form-webhook` for existing Feishu Base/Bitable record writes
+- managed `formKey` routing through server-side registry bindings for multi-form handoff
 - optional form-schema preflight via existing `formId`
 
 ## What is out of scope
@@ -65,11 +66,16 @@ Boundary anchors frozen for this repo:
 
 ## Current implementation state
 
-There is currently **no active planning pack** in `docs/plan/*`.
+There is currently **no active plan pack** in `docs/plan/*`; `docs/plan/README.md` is the live no-active-pack placeholder.
 
 Closed/archived plan packs:
 
 - latest closed pack:
+  - `docs/archive/plan/adapter-feishu-managed-form-routing-v1-2026-04-24_PLAN.md`
+  - `docs/archive/plan/adapter-feishu-managed-form-routing-v1-2026-04-24_STATUS.md`
+  - `docs/archive/plan/adapter-feishu-managed-form-routing-v1-2026-04-24_WORKSET.md`
+  - `docs/archive/plan/adapter-feishu-managed-form-routing-v1-2026-04-24_CLOSEOUT.md`
+- previous closed pack:
   - `docs/archive/plan/adapter-feishu-form-webhook-poc-v1-2026-04-23_PLAN.md`
   - `docs/archive/plan/adapter-feishu-form-webhook-poc-v1-2026-04-23_STATUS.md`
   - `docs/archive/plan/adapter-feishu-form-webhook-poc-v1-2026-04-23_WORKSET.md`
@@ -87,12 +93,15 @@ Current repo truth:
 - provider routing, bounded dedupe, and pending callback state are landed under `src/providers/**` and `src/state/**`
 - provider webhook, card-action dispatch, health routing, and `/providers/form-webhook` are landed under `src/server/**`
 - the first concrete provider path remains notify-first `warning-agent -> adapter-feishu -> Feishu/Lark`
-- the new form path writes records into an **existing** Feishu Base/table through `bitable.appTableRecord.create`
+- the form path writes records into an **existing** Feishu Base/table through `bitable.appTableRecord.create`
+- managed form mode resolves `formKey` through `ADAPTER_FEISHU_FORM_REGISTRY_PATH`, maps business fields through `fieldMap`, injects `fixedFields`, and shields callers from raw target selection
 - optional schema preflight uses `bitable.appTableForm.get` + `bitable.appTableFormField.list`
 - same-table write safety is intentionally **in-process only** and scoped by `appToken:tableId`
 - the repo still does **not** claim full smart-form control or generic form lifecycle management
 
 ## Form webhook quick start
+
+### Managed mode: preferred multi-form handoff
 
 1. Install dependencies:
    - `npm install`
@@ -102,13 +111,58 @@ Current repo truth:
    - `FEISHU_APP_ID`
    - `FEISHU_APP_SECRET`
    - `ADAPTER_FEISHU_FORM_WEBHOOK_AUTH_TOKEN`
-   - `ADAPTER_FEISHU_FORM_DEFAULT_APP_TOKEN`
-   - `ADAPTER_FEISHU_FORM_DEFAULT_TABLE_ID`
-   - optional: `ADAPTER_FEISHU_FORM_DEFAULT_FORM_ID`
-4. Start the service:
+   - `ADAPTER_FEISHU_FORM_REGISTRY_PATH=config/form-bindings.example.json` for the placeholder local example, or a mounted tenant-specific registry file for real deployments
+4. Replace placeholder target IDs in the registry copy with real existing Base/table/form IDs. Do not commit private tenant IDs.
+5. Start the service:
    - `npm run build`
    - `npm run start`
-5. Send a record-write request:
+6. Send a managed record-write request:
+
+```bash
+curl -X POST http://127.0.0.1:8787/providers/form-webhook \
+  -H 'content-type: application/json' \
+  -H 'authorization: Bearer form-token-1' \
+  -d '{
+    "formKey": "pms-intake",
+    "clientToken": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
+    "fields": {
+      "title": "adapter-feishu",
+      "severity": "warning",
+      "description": "managed routing smoke"
+    }
+  }'
+```
+
+Managed payload rules:
+
+- `formKey` selects a server-side binding in `ADAPTER_FEISHU_FORM_REGISTRY_PATH`
+- `clientToken` must be UUIDv4
+- `fields` uses business keys that are mapped through the binding `fieldMap`
+- `fixedFields` from the binding are injected after mapping and cannot be overridden by caller input
+- `target` must **not** be sent in managed mode; registry `target` is the only destination truth
+- `validateFormSchema` is optional; if omitted, managed mode uses `policy.validateFormSchemaByDefault`
+
+Typical managed success shape:
+
+```json
+{
+  "code": 0,
+  "status": "record_created",
+  "recordId": "rec_xxx",
+  "clientToken": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
+  "schemaValidated": true,
+  "targetSource": "managed",
+  "target": {
+    "appToken": "bascnxxxxxxxxxxxx",
+    "tableId": "tblxxxxxxxxxxxx",
+    "formId": "formxxxxxxxxxxxx"
+  }
+}
+```
+
+### Legacy mode: default target or explicit override
+
+When `formKey` is absent, `/providers/form-webhook` keeps the legacy contract: fields are Feishu table field names, the configured default target is used, and raw `target` override is accepted only when `ADAPTER_FEISHU_FORM_ALLOW_TARGET_OVERRIDE=true`.
 
 ```bash
 curl -X POST http://127.0.0.1:8787/providers/form-webhook \
@@ -123,32 +177,11 @@ curl -X POST http://127.0.0.1:8787/providers/form-webhook \
   }'
 ```
 
-Bounded payload rules:
+Raw `target` override is an escape hatch for legacy integrations, not the recommended managed multi-form onboarding path.
 
-- `clientToken` must be UUIDv4
-- `fields` must be a JSON object and should match real table column names
-- `validateFormSchema` is optional
-- `target` is only accepted when `ADAPTER_FEISHU_FORM_ALLOW_TARGET_OVERRIDE=true`
-- if `validateFormSchema=true`, the resolved target must include a usable `formId`
+Managed invalid-payload errors are stable enough for operator troubleshooting and include `form_registry_not_configured`, `form_key_unknown:<formKey>`, `form_key_disabled:<formKey>`, `target_not_allowed_for_managed_form`, `field_not_mapped:<businessField>`, and `fixed_field_conflict:<FeishuFieldName>`.
 
-Typical success shape:
-
-```json
-{
-  "code": 0,
-  "status": "record_created",
-  "recordId": "rec_xxx",
-  "clientToken": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
-  "targetSource": "default",
-  "target": {
-    "appToken": "bascnxxxxxxxxxxxx",
-    "tableId": "tblxxxxxxxxxxxx",
-    "formId": "formxxxxxxxxxxxx"
-  }
-}
-```
-
-For the full contract, auth rules, override behavior, schema-validation errors, and troubleshooting, see:
+For the full managed/legacy contract, auth rules, registry shape, schema-validation errors, and troubleshooting, see:
 
 - `docs/runbook/adapter-feishu-form-integration.md`
 

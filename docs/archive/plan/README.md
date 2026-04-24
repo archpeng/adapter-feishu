@@ -18,6 +18,13 @@ There is currently **no active pack** in `docs/plan/*`.
 - `adapter-feishu-standalone-multi-service-bootstrap-2026-04-19_STATUS.md`
 - `adapter-feishu-standalone-multi-service-bootstrap-2026-04-19_WORKSET.md`
 
+### managed form routing v1
+
+- `adapter-feishu-managed-form-routing-v1-2026-04-24_PLAN.md`
+- `adapter-feishu-managed-form-routing-v1-2026-04-24_STATUS.md`
+- `adapter-feishu-managed-form-routing-v1-2026-04-24_WORKSET.md`
+- `adapter-feishu-managed-form-routing-v1-2026-04-24_CLOSEOUT.md`
+
 ### form webhook POC v1
 
 - `adapter-feishu-form-webhook-poc-v1-2026-04-23_PLAN.md`

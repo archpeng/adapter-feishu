@@ -33,6 +33,7 @@ export interface AdapterConfig {
     allowTargetOverride: boolean;
     userIdType: FeishuUserIdType;
     defaultTarget?: FeishuFormDefaultTargetConfig;
+    registryPath?: string;
   };
   state: {
     dedupeTtlSeconds: number;
@@ -180,7 +181,8 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       webhookAuthToken: env.ADAPTER_FEISHU_FORM_WEBHOOK_AUTH_TOKEN?.trim() || undefined,
       allowTargetOverride: parseBoolean(env, 'ADAPTER_FEISHU_FORM_ALLOW_TARGET_OVERRIDE', false),
       userIdType: parseFeishuUserIdType(env, 'ADAPTER_FEISHU_FORM_USER_ID_TYPE', 'user_id'),
-      defaultTarget: parseOptionalFormDefaultTarget(env)
+      defaultTarget: parseOptionalFormDefaultTarget(env),
+      registryPath: env.ADAPTER_FEISHU_FORM_REGISTRY_PATH?.trim() || undefined
     },
     state: {
       dedupeTtlSeconds: parsePositiveInteger(env, 'ADAPTER_FEISHU_DEDUPE_TTL_SECONDS', 300),

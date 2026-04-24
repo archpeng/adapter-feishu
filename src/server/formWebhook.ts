@@ -7,6 +7,7 @@ import type {
 } from '../channels/feishu/bitableClient.js';
 import type { FeishuFormDefaultTargetConfig } from '../config.js';
 import type { JsonRecord } from '../core/contracts.js';
+import type { ManagedFormBinding, ManagedFormRegistry } from '../forms/registry.js';
 import type { AlertDeduper, DedupeKeyInput } from '../state/dedupe.js';
 import type { TableWriteQueue } from '../state/tableWriteQueue.js';
 
@@ -32,6 +33,7 @@ export interface FormWebhookDispatchDeps {
   authToken?: string;
   defaultTarget?: FeishuFormDefaultTargetConfig;
   allowTargetOverride?: boolean;
+  formRegistry?: ManagedFormRegistry;
   userIdType: FeishuUserIdType;
   deduper?: AlertDeduper;
   tableWriteQueue?: TableWriteQueue;
@@ -73,12 +75,18 @@ export async function dispatchFormWebhookRequest(
 
   const clientToken = stringField(payload, 'clientToken');
   const fields = recordField(payload, 'fields');
-  const validateFormSchema = optionalBooleanField(payload, 'validateFormSchema');
-  const targetResolution = resolveFormTarget(payload, deps.defaultTarget, deps.allowTargetOverride ?? false);
+  const explicitValidateFormSchema = optionalBooleanField(payload, 'validateFormSchema');
+  const formKeyResolution = resolveFormKey(payload);
+  const targetResolution = formKeyResolution.errors.length > 0
+    ? { errors: [] }
+    : formKeyResolution.formKey
+      ? resolveManagedFormPayload(payload, formKeyResolution.formKey, fields, deps.formRegistry, explicitValidateFormSchema)
+      : resolveFormTarget(payload, deps.defaultTarget, deps.allowTargetOverride ?? false, fields, explicitValidateFormSchema);
   const errors = [
     ...validateClientToken(clientToken),
     ...validateFields(fields),
     ...validateBooleanFlag(payload, 'validateFormSchema'),
+    ...formKeyResolution.errors,
     ...targetResolution.errors
   ];
 
@@ -86,15 +94,17 @@ export async function dispatchFormWebhookRequest(
     errors.length > 0 ||
     !clientToken ||
     !fields ||
-    validateFormSchema === undefined ||
     !targetResolution.target ||
-    !targetResolution.targetSource
+    !targetResolution.targetSource ||
+    !targetResolution.fields
   ) {
     return invalidPayloadResponse(errors);
   }
 
   const target = targetResolution.target;
   const targetSource = targetResolution.targetSource;
+  const effectiveValidateFormSchema = targetResolution.validateFormSchema;
+  const resolvedFields = targetResolution.fields;
   const dedupeInput: DedupeKeyInput = {
     providerKey: FORM_WEBHOOK_DEDUPE_PROVIDER_KEY,
     dedupeKey: `${target.appToken}:${target.tableId}:${clientToken}`
@@ -105,10 +115,10 @@ export async function dispatchFormWebhookRequest(
       return duplicateIgnoredResponse(clientToken, targetSource, target);
     }
 
-    let recordFields = fields;
+    let recordFields = resolvedFields;
 
-    if (validateFormSchema) {
-      const schemaValidationResult = await validateFormSchemaRequest(fields, target, deps);
+    if (effectiveValidateFormSchema) {
+      const schemaValidationResult = await validateFormSchemaRequest(resolvedFields, target, deps);
       if ('statusCode' in schemaValidationResult) {
         return schemaValidationResult;
       }
@@ -150,7 +160,7 @@ export async function dispatchFormWebhookRequest(
         status: 'record_created',
         ...(result.recordId ? { recordId: result.recordId } : {}),
         clientToken,
-        ...(validateFormSchema ? { schemaValidated: true } : {}),
+        ...(effectiveValidateFormSchema ? { schemaValidated: true } : {}),
         targetSource,
         target
       }
@@ -162,8 +172,95 @@ export async function dispatchFormWebhookRequest(
 
 interface FormTargetResolution {
   target?: FeishuFormDefaultTargetConfig;
-  targetSource?: 'default' | 'override';
+  targetSource?: 'default' | 'override' | 'managed';
+  fields?: JsonRecord;
+  validateFormSchema?: boolean;
   errors: string[];
+}
+
+interface FormKeyResolution {
+  formKey?: string;
+  errors: string[];
+}
+
+function resolveFormKey(payload: JsonRecord): FormKeyResolution {
+  if (payload.formKey === undefined) {
+    return { errors: [] };
+  }
+
+  const formKey = stringField(payload, 'formKey');
+  return formKey ? { formKey, errors: [] } : { errors: ['form_key_invalid'] };
+}
+
+function resolveManagedFormPayload(
+  payload: JsonRecord,
+  formKey: string,
+  fields: JsonRecord | undefined,
+  formRegistry: ManagedFormRegistry | undefined,
+  explicitValidateFormSchema: boolean | undefined
+): FormTargetResolution {
+  const errors: string[] = [];
+
+  if (payload.target !== undefined) {
+    errors.push('target_not_allowed_for_managed_form');
+  }
+
+  if (!formRegistry) {
+    return { errors: [...errors, 'form_registry_not_configured'] };
+  }
+
+  const binding = formRegistry.forms[formKey];
+  if (!binding) {
+    return { errors: [...errors, `form_key_unknown:${formKey}`] };
+  }
+
+  if (!binding.enabled) {
+    return { errors: [...errors, `form_key_disabled:${formKey}`] };
+  }
+
+  const mappedFields = fields ? mapManagedFormFields(fields, binding, errors) : undefined;
+
+  return {
+    target: binding.target,
+    targetSource: 'managed',
+    fields: mappedFields,
+    validateFormSchema: explicitValidateFormSchema ?? binding.policy.validateFormSchemaByDefault,
+    errors
+  };
+}
+
+function mapManagedFormFields(
+  fields: JsonRecord,
+  binding: ManagedFormBinding,
+  errors: string[]
+): JsonRecord {
+  const mappedFields: JsonRecord = {};
+
+  for (const [businessField, value] of Object.entries(fields)) {
+    const feishuField = binding.fieldMap[businessField];
+    if (!feishuField) {
+      if (binding.policy.rejectUnmappedFields) {
+        errors.push(`field_not_mapped:${businessField}`);
+        continue;
+      }
+
+      mappedFields[businessField] = value;
+      continue;
+    }
+
+    mappedFields[feishuField] = value;
+  }
+
+  for (const [fixedField, value] of Object.entries(binding.fixedFields)) {
+    if (mappedFields[fixedField] !== undefined) {
+      errors.push(`fixed_field_conflict:${fixedField}`);
+      continue;
+    }
+
+    mappedFields[fixedField] = value;
+  }
+
+  return mappedFields;
 }
 
 async function validateFormSchemaRequest(
@@ -401,12 +498,20 @@ function isMissingFieldValue(value: unknown): boolean {
 function resolveFormTarget(
   payload: JsonRecord,
   defaultTarget: FeishuFormDefaultTargetConfig | undefined,
-  allowTargetOverride: boolean
+  allowTargetOverride: boolean,
+  fields: JsonRecord | undefined,
+  explicitValidateFormSchema: boolean | undefined
 ): FormTargetResolution {
   const targetValue = payload.target;
   if (targetValue === undefined) {
     return defaultTarget
-      ? { target: defaultTarget, targetSource: 'default', errors: [] }
+      ? {
+          target: defaultTarget,
+          targetSource: 'default',
+          fields,
+          validateFormSchema: explicitValidateFormSchema ?? false,
+          errors: []
+        }
       : { errors: ['target_missing'] };
   }
 
@@ -426,6 +531,8 @@ function resolveFormTarget(
   return {
     target: parsedTarget.target,
     targetSource: 'override',
+    fields,
+    validateFormSchema: explicitValidateFormSchema ?? false,
     errors: []
   };
 }
@@ -507,7 +614,7 @@ function optionalStringField(value: JsonRecord, key: string): string | undefined
 
 function optionalBooleanField(value: JsonRecord, key: string): boolean | undefined {
   const candidate = value[key];
-  return typeof candidate === 'boolean' ? candidate : candidate === undefined ? false : undefined;
+  return typeof candidate === 'boolean' ? candidate : undefined;
 }
 
 function normalizeString(value: unknown): string | undefined {
@@ -548,7 +655,7 @@ function invalidPayloadResponse(errors: string[]): FormWebhookResponse {
 
 function duplicateIgnoredResponse(
   clientToken: string,
-  targetSource: 'default' | 'override',
+  targetSource: 'default' | 'override' | 'managed',
   target: FeishuFormDefaultTargetConfig
 ): FormWebhookResponse {
   return {

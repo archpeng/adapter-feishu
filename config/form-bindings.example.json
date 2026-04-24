@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "forms": {
+    "pms-intake": {
+      "enabled": true,
+      "target": {
+        "appToken": "bascn_example_app_token",
+        "tableId": "tbl_example_table_id",
+        "formId": "form_example_form_id"
+      },
+      "fieldMap": {
+        "title": "Title",
+        "severity": "Severity",
+        "description": "Description"
+      },
+      "fixedFields": {
+        "Source": "adapter-feishu-managed-form",
+        "Ingress": "formKey:pms-intake"
+      },
+      "policy": {
+        "validateFormSchemaByDefault": true,
+        "rejectUnmappedFields": true
+      }
+    }
+  }
+}

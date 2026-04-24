@@ -12,6 +12,7 @@ import { type DispatchRequest, dispatchWebhookRequest } from './channels/feishu/
 import { readRequestBody, respondJson } from './channels/feishu/webhookSecurity.js';
 import type { AdapterConfig } from './config.js';
 import { type JsonRecord } from './core/contracts.js';
+import { loadManagedFormRegistry, type ManagedFormRegistry } from './forms/registry.js';
 import {
   createProviderRegistry,
   registerProvider,
@@ -37,6 +38,7 @@ export interface AdapterRuntime {
   providerRouter: ProviderRouter;
   deduper: AlertDeduper;
   pendingStore: PendingStore;
+  formRegistry?: ManagedFormRegistry;
   start(): Promise<void>;
   stop(): Promise<void>;
 }
@@ -121,6 +123,9 @@ export function createAdapterRuntime(
     ttlMs: config.state.pendingTtlSeconds * 1000
   });
   const tableWriteQueue = createTableWriteQueue();
+  const formRegistry = config.form.registryPath
+    ? loadManagedFormRegistry(config.form.registryPath)
+    : undefined;
   const now = () => new Date().toISOString();
 
   const handleTurn: Parameters<typeof createLongConnectionIngress>[1] = async (turn) => {
@@ -220,6 +225,7 @@ export function createAdapterRuntime(
             authToken: config.form.webhookAuthToken,
             defaultTarget: config.form.defaultTarget,
             allowTargetOverride: config.form.allowTargetOverride,
+            formRegistry,
             userIdType: config.form.userIdType,
             deduper,
             tableWriteQueue
@@ -242,6 +248,7 @@ export function createAdapterRuntime(
     providerRouter,
     deduper,
     pendingStore,
+    formRegistry,
     async start() {
       await httpServer.listen();
       if (config.feishu.ingressMode === 'long_connection') {
