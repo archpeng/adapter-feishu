@@ -1,5 +1,10 @@
 import type { IncomingHttpHeaders } from 'node:http';
-import type { BitableClient, BitableFormField, FeishuUserIdType } from '../channels/feishu/bitableClient.js';
+import type {
+  BitableClient,
+  BitableFormField,
+  BitableTableField,
+  FeishuUserIdType
+} from '../channels/feishu/bitableClient.js';
 import type { FeishuFormDefaultTargetConfig } from '../config.js';
 import type { JsonRecord } from '../core/contracts.js';
 import type { AlertDeduper, DedupeKeyInput } from '../state/dedupe.js';
@@ -23,13 +28,25 @@ export interface FormWebhookResponse {
 
 export interface FormWebhookDispatchDeps {
   bitableClient: Pick<BitableClient, 'createRecord'> &
-    Partial<Pick<BitableClient, 'getForm' | 'listFormFields'>>;
+    Partial<Pick<BitableClient, 'getForm' | 'listFormFields' | 'listTableFields'>>;
   authToken?: string;
   defaultTarget?: FeishuFormDefaultTargetConfig;
   allowTargetOverride?: boolean;
   userIdType: FeishuUserIdType;
   deduper?: AlertDeduper;
   tableWriteQueue?: TableWriteQueue;
+}
+
+interface FormSchemaValidationSuccess {
+  normalizedFields: JsonRecord;
+}
+
+interface FormSchemaField {
+  aliases: string[];
+  canonicalFieldName: string;
+  displayName: string;
+  required: boolean;
+  visible: boolean;
 }
 
 export async function dispatchFormWebhookRequest(
@@ -76,8 +93,8 @@ export async function dispatchFormWebhookRequest(
     return invalidPayloadResponse(errors);
   }
 
-  const target = targetResolution.target!;
-  const targetSource = targetResolution.targetSource!;
+  const target = targetResolution.target;
+  const targetSource = targetResolution.targetSource;
   const dedupeInput: DedupeKeyInput = {
     providerKey: FORM_WEBHOOK_DEDUPE_PROVIDER_KEY,
     dedupeKey: `${target.appToken}:${target.tableId}:${clientToken}`
@@ -88,11 +105,15 @@ export async function dispatchFormWebhookRequest(
       return duplicateIgnoredResponse(clientToken, targetSource, target);
     }
 
+    let recordFields = fields;
+
     if (validateFormSchema) {
-      const schemaValidationResponse = await validateFormSchemaRequest(fields, target, deps);
-      if (schemaValidationResponse) {
-        return schemaValidationResponse;
+      const schemaValidationResult = await validateFormSchemaRequest(fields, target, deps);
+      if ('statusCode' in schemaValidationResult) {
+        return schemaValidationResult;
       }
+
+      recordFields = schemaValidationResult.normalizedFields;
     }
 
     const result = await deps.bitableClient
@@ -101,7 +122,7 @@ export async function dispatchFormWebhookRequest(
         tableId: target.tableId,
         clientToken,
         userIdType: deps.userIdType,
-        fields
+        fields: recordFields
       })
       .catch((error: unknown) => {
         return {
@@ -149,12 +170,12 @@ async function validateFormSchemaRequest(
   fields: JsonRecord,
   target: FeishuFormDefaultTargetConfig,
   deps: FormWebhookDispatchDeps
-): Promise<FormWebhookResponse | undefined> {
+): Promise<FormSchemaValidationSuccess | FormWebhookResponse> {
   if (!target.formId) {
     return invalidPayloadResponse(['form_id_required_for_schema_validation']);
   }
 
-  if (!deps.bitableClient.getForm || !deps.bitableClient.listFormFields) {
+  if (!deps.bitableClient.getForm || !deps.bitableClient.listFormFields || !deps.bitableClient.listTableFields) {
     return {
       statusCode: 502,
       body: {
@@ -172,16 +193,33 @@ async function validateFormSchemaRequest(
       formId: target.formId
     });
 
-    const formFields = await listAllFormFields({
-      listFormFields: deps.bitableClient.listFormFields
-    }, {
-      appToken: target.appToken,
-      tableId: target.tableId,
-      formId: target.formId
-    });
-    const validationErrors = validateFieldsAgainstFormSchema(fields, formFields);
+    const [formFields, tableFields] = await Promise.all([
+      listAllFormFields(
+        {
+          listFormFields: deps.bitableClient.listFormFields
+        },
+        {
+          appToken: target.appToken,
+          tableId: target.tableId,
+          formId: target.formId
+        }
+      ),
+      listAllTableFields(
+        {
+          listTableFields: deps.bitableClient.listTableFields
+        },
+        {
+          appToken: target.appToken,
+          tableId: target.tableId
+        }
+      )
+    ]);
 
-    return validationErrors.length > 0 ? invalidPayloadResponse(validationErrors) : undefined;
+    const validation = normalizeAndValidateFieldsAgainstFormSchema(fields, formFields, tableFields);
+
+    return validation.errors.length > 0
+      ? invalidPayloadResponse(validation.errors)
+      : { normalizedFields: validation.normalizedFields };
   } catch (error) {
     return {
       statusCode: 502,
@@ -222,39 +260,126 @@ async function listAllFormFields(
   return items;
 }
 
-function validateFieldsAgainstFormSchema(fields: JsonRecord, formFields: BitableFormField[]): string[] {
-  const errors: string[] = [];
-  const fieldsByTitle = new Map<string, BitableFormField>();
+async function listAllTableFields(
+  bitableClient: Required<Pick<BitableClient, 'listTableFields'>>,
+  target: { appToken: string; tableId: string }
+): Promise<BitableTableField[]> {
+  const items: BitableTableField[] = [];
+  let pageToken: string | undefined;
 
-  for (const field of formFields) {
-    if (field.title && !fieldsByTitle.has(field.title)) {
-      fieldsByTitle.set(field.title, field);
+  while (true) {
+    const page = await bitableClient.listTableFields({
+      appToken: target.appToken,
+      tableId: target.tableId,
+      pageSize: DEFAULT_FORM_FIELD_PAGE_SIZE,
+      pageToken
+    });
+
+    items.push(...page.items);
+
+    if (!page.hasMore || !page.pageToken) {
+      break;
+    }
+
+    pageToken = page.pageToken;
+  }
+
+  return items;
+}
+
+function normalizeAndValidateFieldsAgainstFormSchema(
+  fields: JsonRecord,
+  formFields: BitableFormField[],
+  tableFields: BitableTableField[]
+): { errors: string[]; normalizedFields: JsonRecord } {
+  const errors: string[] = [];
+  const normalizedFields: JsonRecord = {};
+  const schemaFields = buildFormSchemaFields(formFields, tableFields);
+  const schemaFieldsByAlias = new Map<string, FormSchemaField>();
+
+  for (const schemaField of schemaFields) {
+    for (const alias of schemaField.aliases) {
+      if (!schemaFieldsByAlias.has(alias)) {
+        schemaFieldsByAlias.set(alias, schemaField);
+      }
     }
   }
 
-  for (const field of formFields) {
-    if (!field.title || field.visible === false || !field.required) {
+  for (const schemaField of schemaFields) {
+    if (!schemaField.visible || !schemaField.required) {
       continue;
     }
 
-    if (isMissingFieldValue(fields[field.title])) {
-      errors.push(`required_field_missing:${field.title}`);
+    const hasValue = schemaField.aliases.some((alias) => !isMissingFieldValue(fields[alias]));
+    if (!hasValue) {
+      errors.push(`required_field_missing:${schemaField.displayName}`);
     }
   }
 
   for (const submittedField of Object.keys(fields)) {
-    const formField = fieldsByTitle.get(submittedField);
-    if (!formField) {
+    const schemaField = schemaFieldsByAlias.get(submittedField);
+    if (!schemaField) {
       errors.push(`field_not_in_form:${submittedField}`);
       continue;
     }
 
-    if (formField.visible === false) {
+    if (!schemaField.visible) {
       errors.push(`field_not_visible:${submittedField}`);
+      continue;
+    }
+
+    if (!(schemaField.canonicalFieldName in normalizedFields)) {
+      normalizedFields[schemaField.canonicalFieldName] = fields[submittedField];
     }
   }
 
-  return errors;
+  return { errors, normalizedFields };
+}
+
+function buildFormSchemaFields(
+  formFields: BitableFormField[],
+  tableFields: BitableTableField[]
+): FormSchemaField[] {
+  const tableFieldNamesById = new Map<string, string>();
+
+  for (const tableField of tableFields) {
+    if (tableField.fieldId && tableField.fieldName && !tableFieldNamesById.has(tableField.fieldId)) {
+      tableFieldNamesById.set(tableField.fieldId, tableField.fieldName);
+    }
+  }
+
+  return formFields
+    .map((formField) => toFormSchemaField(formField, tableFieldNamesById))
+    .filter((field): field is FormSchemaField => Boolean(field));
+}
+
+function toFormSchemaField(
+  formField: BitableFormField,
+  tableFieldNamesById: Map<string, string>
+): FormSchemaField | undefined {
+  const canonicalFieldName = (formField.fieldId && tableFieldNamesById.get(formField.fieldId)) || formField.title;
+  const displayName = formField.title || canonicalFieldName;
+
+  if (!canonicalFieldName || !displayName) {
+    return undefined;
+  }
+
+  const aliases = [...new Set([canonicalFieldName, formField.title].filter(isNonEmptyString))];
+  if (aliases.length === 0) {
+    return undefined;
+  }
+
+  return {
+    aliases,
+    canonicalFieldName,
+    displayName,
+    required: formField.required === true,
+    visible: formField.visible !== false
+  };
+}
+
+function isNonEmptyString(value: string | undefined): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
 }
 
 function isMissingFieldValue(value: unknown): boolean {

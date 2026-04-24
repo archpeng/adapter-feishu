@@ -52,7 +52,8 @@ function createBitableClientStub(createRecord = vi.fn().mockResolvedValue({ reco
   return {
     createRecord,
     getForm: vi.fn(),
-    listFormFields: vi.fn()
+    listFormFields: vi.fn(),
+    listTableFields: vi.fn()
   };
 }
 

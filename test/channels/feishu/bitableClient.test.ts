@@ -4,18 +4,21 @@ import { createBitableClient } from '../../../src/channels/feishu/bitableClient.
 describe('createBitableClient', () => {
   const createRecord = vi.fn();
   const getForm = vi.fn();
+  const listTableFields = vi.fn();
   const listFormFields = vi.fn();
   const createSdkClient = vi.fn();
 
   beforeEach(() => {
     createRecord.mockReset();
     getForm.mockReset();
+    listTableFields.mockReset();
     listFormFields.mockReset();
     createSdkClient.mockReset();
     createSdkClient.mockReturnValue({
       bitable: {
         appTableRecord: { create: createRecord },
         appTableForm: { get: getForm },
+        appTableField: { list: listTableFields },
         appTableFormField: { list: listFormFields }
       }
     });
@@ -114,7 +117,7 @@ describe('createBitableClient', () => {
     );
   });
 
-  it('maps getForm and listFormFields into stable local shapes', async () => {
+  it('maps getForm, listFormFields, and listTableFields into stable local shapes', async () => {
     getForm.mockResolvedValue({
       code: 0,
       data: {
@@ -140,7 +143,23 @@ describe('createBitableClient', () => {
             visible: true
           }
         ],
-        page_token: 'next_page',
+        page_token: 'next_form_page',
+        has_more: true,
+        total: 5
+      }
+    });
+    listTableFields.mockResolvedValue({
+      code: 0,
+      data: {
+        items: [
+          {
+            field_id: 'fld_1',
+            field_name: 'CanonicalTitle',
+            type: 1,
+            ui_type: 'Text'
+          }
+        ],
+        page_token: 'next_table_page',
         has_more: true,
         total: 5
       }
@@ -159,12 +178,18 @@ describe('createBitableClient', () => {
       tableId: 'tbl_1',
       formId: 'form_1'
     });
-    const fields = await client.listFormFields({
+    const formFields = await client.listFormFields({
       appToken: 'app_token_1',
       tableId: 'tbl_1',
       formId: 'form_1',
       pageSize: 100,
       pageToken: 'page_1'
+    });
+    const tableFields = await client.listTableFields({
+      appToken: 'app_token_1',
+      tableId: 'tbl_1',
+      pageSize: 100,
+      pageToken: 'page_2'
     });
 
     expect(getForm).toHaveBeenCalledWith({
@@ -185,6 +210,16 @@ describe('createBitableClient', () => {
         page_token: 'page_1'
       }
     });
+    expect(listTableFields).toHaveBeenCalledWith({
+      path: {
+        app_token: 'app_token_1',
+        table_id: 'tbl_1'
+      },
+      params: {
+        page_size: 100,
+        page_token: 'page_2'
+      }
+    });
     expect(form).toEqual({
       formId: 'form_1',
       name: 'Incident Intake',
@@ -194,7 +229,7 @@ describe('createBitableClient', () => {
       sharedLimit: 'tenant_editable',
       submitLimitOnce: false
     });
-    expect(fields).toEqual({
+    expect(formFields).toEqual({
       items: [
         {
           fieldId: 'fld_1',
@@ -205,7 +240,20 @@ describe('createBitableClient', () => {
         }
       ],
       hasMore: true,
-      pageToken: 'next_page',
+      pageToken: 'next_form_page',
+      total: 5
+    });
+    expect(tableFields).toEqual({
+      items: [
+        {
+          fieldId: 'fld_1',
+          fieldName: 'CanonicalTitle',
+          type: 1,
+          uiType: 'Text'
+        }
+      ],
+      hasMore: true,
+      pageToken: 'next_table_page',
       total: 5
     });
   });

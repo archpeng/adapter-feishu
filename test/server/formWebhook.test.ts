@@ -290,14 +290,29 @@ describe('dispatchFormWebhookRequest', () => {
     const listFormFields = vi.fn().mockResolvedValue({
       items: [
         {
+          fieldId: 'fld_title',
           title: 'Title',
           required: true,
           visible: true
         },
         {
+          fieldId: 'fld_severity',
           title: 'Severity',
           required: true,
           visible: true
+        }
+      ],
+      hasMore: false
+    });
+    const listTableFields = vi.fn().mockResolvedValue({
+      items: [
+        {
+          fieldId: 'fld_title',
+          fieldName: 'Title'
+        },
+        {
+          fieldId: 'fld_severity',
+          fieldName: 'Severity'
         }
       ],
       hasMore: false
@@ -317,7 +332,8 @@ describe('dispatchFormWebhookRequest', () => {
         bitableClient: {
           createRecord,
           getForm,
-          listFormFields
+          listFormFields,
+          listTableFields
         },
         userIdType: 'user_id',
         defaultTarget: {
@@ -337,6 +353,12 @@ describe('dispatchFormWebhookRequest', () => {
       appToken: 'app_token_default',
       tableId: 'tbl_default',
       formId: 'form_default',
+      pageSize: 500,
+      pageToken: undefined
+    });
+    expect(listTableFields).toHaveBeenCalledWith({
+      appToken: 'app_token_default',
+      tableId: 'tbl_default',
       pageSize: 500,
       pageToken: undefined
     });
@@ -375,14 +397,29 @@ describe('dispatchFormWebhookRequest', () => {
           listFormFields: vi.fn().mockResolvedValue({
             items: [
               {
+                fieldId: 'fld_title',
                 title: 'Title',
                 required: true,
                 visible: true
               },
               {
+                fieldId: 'fld_hidden',
                 title: 'HiddenField',
                 required: false,
                 visible: false
+              }
+            ],
+            hasMore: false
+          }),
+          listTableFields: vi.fn().mockResolvedValue({
+            items: [
+              {
+                fieldId: 'fld_title',
+                fieldName: 'Title'
+              },
+              {
+                fieldId: 'fld_hidden',
+                fieldName: 'HiddenField'
               }
             ],
             hasMore: false
@@ -404,6 +441,85 @@ describe('dispatchFormWebhookRequest', () => {
         code: 400,
         message: 'invalid_payload',
         errors: ['field_not_visible:HiddenField', 'field_not_in_form:UnknownField']
+      }
+    });
+  });
+
+  it('accepts table field names when form titles drift and normalizes form-title aliases before record creation', async () => {
+    const createRecord = vi.fn().mockResolvedValue({
+      recordId: 'rec_form_alias',
+      fields: { CanonicalField: 'adapter-feishu' }
+    });
+
+    const response = await dispatchFormWebhookRequest(
+      {
+        method: 'POST',
+        pathname: '/providers/form-webhook',
+        rawBody: JSON.stringify({
+          clientToken: validClientToken,
+          validateFormSchema: true,
+          fields: {
+            DisplayLabel: 'adapter-feishu'
+          }
+        })
+      },
+      {
+        bitableClient: {
+          createRecord,
+          getForm: vi.fn().mockResolvedValue({ formId: 'form_default' }),
+          listFormFields: vi.fn().mockResolvedValue({
+            items: [
+              {
+                fieldId: 'fld_alias',
+                title: 'DisplayLabel',
+                required: true,
+                visible: true
+              }
+            ],
+            hasMore: false
+          }),
+          listTableFields: vi.fn().mockResolvedValue({
+            items: [
+              {
+                fieldId: 'fld_alias',
+                fieldName: 'CanonicalField'
+              }
+            ],
+            hasMore: false
+          })
+        },
+        userIdType: 'user_id',
+        defaultTarget: {
+          appToken: 'app_token_default',
+          tableId: 'tbl_default',
+          formId: 'form_default'
+        }
+      }
+    );
+
+    expect(createRecord).toHaveBeenCalledWith({
+      appToken: 'app_token_default',
+      tableId: 'tbl_default',
+      clientToken: validClientToken,
+      userIdType: 'user_id',
+      fields: {
+        CanonicalField: 'adapter-feishu'
+      }
+    });
+    expect(response).toEqual({
+      statusCode: 200,
+      body: {
+        code: 0,
+        status: 'record_created',
+        recordId: 'rec_form_alias',
+        clientToken: validClientToken,
+        schemaValidated: true,
+        targetSource: 'default',
+        target: {
+          appToken: 'app_token_default',
+          tableId: 'tbl_default',
+          formId: 'form_default'
+        }
       }
     });
   });
@@ -454,6 +570,7 @@ describe('dispatchFormWebhookRequest', () => {
     const createRecord = vi.fn();
     const getForm = vi.fn().mockRejectedValue(new Error('permission denied'));
     const listFormFields = vi.fn();
+    const listTableFields = vi.fn();
 
     const response = await dispatchFormWebhookRequest(
       {
@@ -469,7 +586,8 @@ describe('dispatchFormWebhookRequest', () => {
         bitableClient: {
           createRecord,
           getForm,
-          listFormFields
+          listFormFields,
+          listTableFields
         },
         userIdType: 'user_id',
         defaultTarget: {
@@ -482,6 +600,7 @@ describe('dispatchFormWebhookRequest', () => {
 
     expect(createRecord).not.toHaveBeenCalled();
     expect(listFormFields).not.toHaveBeenCalled();
+    expect(listTableFields).not.toHaveBeenCalled();
     expect(response).toEqual({
       statusCode: 502,
       body: {

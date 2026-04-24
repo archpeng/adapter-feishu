@@ -28,6 +28,11 @@ export interface ListBitableFormFieldsRequest extends BitableFormTarget {
   pageToken?: string;
 }
 
+export interface ListBitableTableFieldsRequest extends BitableTableTarget {
+  pageSize?: number;
+  pageToken?: string;
+}
+
 export interface BitableRecord {
   recordId?: string;
   fields: Record<string, unknown>;
@@ -60,10 +65,25 @@ export interface BitableFormFieldPage {
   total?: number;
 }
 
+export interface BitableTableField {
+  fieldId?: string;
+  fieldName?: string;
+  type?: number;
+  uiType?: string;
+}
+
+export interface BitableTableFieldPage {
+  items: BitableTableField[];
+  hasMore: boolean;
+  pageToken?: string;
+  total?: number;
+}
+
 export interface BitableClient {
   createRecord(request: CreateBitableRecordRequest): Promise<BitableRecord>;
   getForm(request: BitableFormTarget): Promise<BitableForm>;
   listFormFields(request: ListBitableFormFieldsRequest): Promise<BitableFormFieldPage>;
+  listTableFields(request: ListBitableTableFieldsRequest): Promise<BitableTableFieldPage>;
 }
 
 interface BitableSdkClient {
@@ -114,6 +134,32 @@ interface BitableSdkClient {
             shared_limit?: 'off' | 'tenant_editable' | 'anyone_editable';
             submit_limit_once?: boolean;
           };
+        };
+      }>;
+    };
+    appTableField: {
+      list(payload: {
+        path: {
+          app_token: string;
+          table_id: string;
+        };
+        params?: {
+          page_size?: number;
+          page_token?: string;
+        };
+      }): Promise<{
+        code?: number;
+        msg?: string;
+        data?: {
+          items?: Array<{
+            field_id?: string;
+            field_name?: string;
+            type?: number;
+            ui_type?: string;
+          }>;
+          page_token?: string;
+          has_more?: boolean;
+          total?: number;
         };
       }>;
     };
@@ -249,6 +295,39 @@ export function createBitableClient(
             description: stringValue(field?.description),
             required: booleanValue(field?.required),
             visible: booleanValue(field?.visible)
+          };
+        }),
+        hasMore: booleanValue(data?.has_more) ?? false,
+        pageToken: stringValue(data?.page_token),
+        total: numberValue(data?.total)
+      };
+    },
+
+    async listTableFields(request) {
+      const response = assertSdkSuccess(
+        await sdkClient.bitable.appTableField.list({
+          path: {
+            app_token: request.appToken,
+            table_id: request.tableId
+          },
+          params: {
+            page_size: request.pageSize,
+            page_token: request.pageToken
+          }
+        }),
+        'Failed to list Feishu Bitable table fields'
+      );
+
+      const data = recordValue(response.data);
+      const rawItems = Array.isArray(data?.items) ? data.items : [];
+      return {
+        items: rawItems.map((item) => {
+          const field = recordValue(item);
+          return {
+            fieldId: stringValue(field?.field_id),
+            fieldName: stringValue(field?.field_name),
+            type: numberValue(field?.type),
+            uiType: stringValue(field?.ui_type)
           };
         }),
         hasMore: booleanValue(data?.has_more) ?? false,
