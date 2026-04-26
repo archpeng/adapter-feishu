@@ -19,6 +19,8 @@ export interface DeliveryTarget {
   channel: DeliveryChannel;
   chatId?: string;
   openId?: string;
+  userId?: string;
+  unionId?: string;
   messageId?: string;
   threadId?: string;
 }

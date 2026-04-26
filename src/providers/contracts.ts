@@ -7,15 +7,32 @@ import type {
   ProviderKey,
   ProviderNotification
 } from '../core/contracts.js';
+import type { PendingStore } from '../state/pendingStore.js';
 
 export interface ProviderNotificationSink {
   sendNotification(notification: ProviderNotification): Promise<ProviderDeliveryResult>;
+}
+
+export interface ProviderCallbackForwardRequest {
+  envelope: JsonRecord;
+  metadata?: JsonRecord;
+}
+
+export interface ProviderCallbackForwardResult {
+  statusCode: number;
+  body?: JsonRecord;
+}
+
+export interface ProviderCallbackForwarder {
+  forwardCallback(request: ProviderCallbackForwardRequest): Promise<ProviderCallbackForwardResult>;
 }
 
 export interface ProviderExecutionContext {
   replySink: ProviderNotificationSink;
   defaultTarget?: DeliveryTarget;
   now?: () => string;
+  pendingStore?: PendingStore;
+  callbackForwarder?: ProviderCallbackForwarder;
 }
 
 export type ProviderExecutionStatus = 'accepted' | 'ignored' | 'deferred' | 'failed';

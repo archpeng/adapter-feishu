@@ -89,8 +89,13 @@ function optionalTarget(errors: string[], value: unknown, field: string): void {
     errors.push(`${field}.channel must be feishu`);
   }
 
-  if (!hasNonEmptyString(target.chatId) && !hasNonEmptyString(target.openId)) {
-    errors.push(`${field} must include chatId or openId`);
+  if (
+    !hasNonEmptyString(target.chatId) &&
+    !hasNonEmptyString(target.openId) &&
+    !hasNonEmptyString(target.userId) &&
+    !hasNonEmptyString(target.unionId)
+  ) {
+    errors.push(`${field} must include chatId, openId, userId, or unionId`);
   }
 }
 

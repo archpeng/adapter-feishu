@@ -38,14 +38,16 @@ export function renderPmsCheckoutResultCard(result: PmsCheckoutResultProjection)
 
   return renderInteractiveCard({
     title: `Checkout complete: room ${result.roomNumber}`,
-    summary: `PMS checked out room ${result.roomNumber} and created housekeeping task ${result.housekeepingTaskId}.`,
+    summary: result.housekeepingTaskId
+      ? `PMS checked out room ${result.roomNumber} and created housekeeping task ${result.housekeepingTaskId}.`
+      : `PMS checked out room ${result.roomNumber} and recorded audit ${result.auditId}.`,
     severity: 'info',
     bodyMarkdown: 'PMS Core remains the canonical checkout truth; this Feishu card is a projection.',
     facts: [
       { label: 'Room', value: `${result.roomNumber} (${result.roomId})` },
       { label: 'Previous status', value: statusText(result.previousStatus) },
       { label: 'Next status', value: statusText(result.nextStatus) },
-      { label: 'Task', value: result.housekeepingTaskId },
+      ...(result.housekeepingTaskId ? [{ label: 'Task', value: result.housekeepingTaskId }] : []),
       { label: 'Audit', value: result.auditId },
       { label: 'Events', value: result.eventTypes.join(', ') },
       { label: 'Actor', value: actorText(result.actor) },

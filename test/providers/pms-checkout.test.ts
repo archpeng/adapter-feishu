@@ -19,8 +19,19 @@ const dryRun: PmsCheckoutDryRunCardInput = {
   reason: 'Guest departed and returned room cards.',
   actor: { type: 'human', id: 'frontdesk-1', displayName: 'Front Desk' },
   correlationId: 'corr-pms-checkout-1001',
-  idempotencyKey: 'idem-pms-checkout-1001',
-  requestFingerprint: 'sha256:pms-checkout-1001',
+  idempotencyKey: 'idem-pms-checkout-1001-dry-run',
+  requestFingerprint: 'sha256:pms-checkout-dry-run-1001',
+  dryRunIdentity: {
+    mode: 'dryRun',
+    idempotencyKey: 'idem-pms-checkout-1001-dry-run',
+    requestFingerprint: 'sha256:pms-checkout-dry-run-1001'
+  },
+  confirmIdentity: {
+    mode: 'confirm',
+    idempotencyKey: 'idem-pms-checkout-1001-confirm',
+    requestFingerprint: 'sha256:pms-checkout-confirm-1001',
+    confirmMode: 'confirm'
+  },
   requestedAt: '2026-04-26T00:00:00.000Z'
 };
 
@@ -34,7 +45,8 @@ describe('PMS checkout Feishu card contract', () => {
       { label: 'Reason', value: 'Guest departed and returned room cards.' },
       { label: 'Actor', value: 'Front Desk (human:frontdesk-1)' },
       { label: 'Correlation', value: 'corr-pms-checkout-1001' },
-      { label: 'Idempotency', value: 'idem-pms-checkout-1001' }
+      { label: 'Dry-run idempotency', value: 'idem-pms-checkout-1001-dry-run' },
+      { label: 'Confirm idempotency', value: 'idem-pms-checkout-1001-confirm' }
     ]);
 
     const card = renderPmsCheckoutDryRunCard(dryRun, 'pending-1');
@@ -59,8 +71,19 @@ describe('PMS checkout Feishu card contract', () => {
         actionId: PMS_CHECKOUT_CONFIRM_ACTION_ID,
         roomId: 'room-1001',
         correlationId: 'corr-pms-checkout-1001',
-        idempotencyKey: 'idem-pms-checkout-1001',
-        requestFingerprint: 'sha256:pms-checkout-1001',
+        idempotencyKey: 'idem-pms-checkout-1001-confirm',
+        requestFingerprint: 'sha256:pms-checkout-confirm-1001',
+        dryRunIdentity: {
+          mode: 'dryRun',
+          idempotencyKey: 'idem-pms-checkout-1001-dry-run',
+          requestFingerprint: 'sha256:pms-checkout-dry-run-1001'
+        },
+        confirmIdentity: {
+          mode: 'confirm',
+          idempotencyKey: 'idem-pms-checkout-1001-confirm',
+          requestFingerprint: 'sha256:pms-checkout-confirm-1001',
+          confirmMode: 'confirm'
+        },
         confirmMode: 'confirm'
       }
     });
@@ -74,8 +97,10 @@ describe('PMS checkout Feishu card contract', () => {
       actionId: 'wrong-action',
       roomId: dryRun.roomId,
       correlationId: dryRun.correlationId,
-      idempotencyKey: dryRun.idempotencyKey,
-      requestFingerprint: dryRun.requestFingerprint,
+      idempotencyKey: dryRun.confirmIdentity.idempotencyKey,
+      requestFingerprint: dryRun.confirmIdentity.requestFingerprint,
+      dryRunIdentity: dryRun.dryRunIdentity,
+      confirmIdentity: dryRun.confirmIdentity,
       confirmMode: 'confirm'
     })).toBeNull();
 
@@ -86,8 +111,10 @@ describe('PMS checkout Feishu card contract', () => {
       actionId: PMS_CHECKOUT_CONFIRM_ACTION_ID,
       roomId: 'room-1001',
       correlationId: 'corr-pms-checkout-1001',
-      idempotencyKey: 'idem-pms-checkout-1001',
-      requestFingerprint: 'sha256:pms-checkout-1001',
+      idempotencyKey: 'idem-pms-checkout-1001-confirm',
+      requestFingerprint: 'sha256:pms-checkout-confirm-1001',
+      dryRunIdentity: dryRun.dryRunIdentity,
+      confirmIdentity: dryRun.confirmIdentity,
       confirmMode: 'confirm'
     });
   });
@@ -108,10 +135,10 @@ describe('PMS checkout Feishu card contract', () => {
       actor: dryRun.actor,
       source: 'api',
       reason: 'Human confirmed checkout in Feishu card.',
-      idempotencyKey: 'idem-pms-checkout-1001',
+      idempotencyKey: 'idem-pms-checkout-1001-confirm',
       correlationId: 'corr-pms-checkout-1001',
       requestedAt: '2026-04-26T00:01:00.000Z',
-      requestFingerprint: 'sha256:pms-checkout-1001'
+      requestFingerprint: 'sha256:pms-checkout-confirm-1001'
     });
   });
 });

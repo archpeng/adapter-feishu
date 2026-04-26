@@ -229,6 +229,65 @@ describe('createAdapterRuntime', () => {
     expect(longConnectionStop).toHaveBeenCalledTimes(1);
   });
 
+  it('registers pms-checkout at runtime and lists it on /health when enabled', async () => {
+    let handleRequest: ((request: AdapterHttpRequest) => Promise<AdapterHttpResponse>) | undefined;
+    const config = createConfig('webhook');
+    config.providers = {
+      keys: ['warning-agent', 'pms-checkout'],
+      defaultProvider: 'warning-agent',
+      allowProviderOverride: true,
+      webhookAuthToken: undefined
+    };
+    config.pmsCheckout = {
+      callbackUrl: 'http://127.0.0.1:8792/pms/checkout/callback',
+      callbackToken: 'callback-token-1',
+      callbackTokenHeader: 'X-AI-PMS-CALLBACK-TOKEN',
+      callbackTokenEnvName: 'AI_PMS_CALLBACK_TOKEN',
+      callbackTimeoutMs: 5000
+    };
+
+    createAdapterRuntime(config, {
+      createClient: () => createFeishuClientStub(),
+      createBitableClient: () => createBitableClientStub(),
+      createReplySink: () => ({
+        sendNotification: vi.fn().mockResolvedValue({
+          providerKey: 'warning-agent',
+          deliveryId: 'delivery-1',
+          channel: 'feishu',
+          status: 'delivered'
+        })
+      }),
+      createHttpServer: (_config, nextHandleRequest) => {
+        handleRequest = nextHandleRequest;
+        return {
+          listen: vi.fn().mockResolvedValue(undefined),
+          close: vi.fn().mockResolvedValue(undefined)
+        };
+      },
+      createLongConnectionIngress: () => ({
+        start: vi.fn().mockResolvedValue(undefined),
+        stop: vi.fn().mockResolvedValue(undefined)
+      })
+    });
+
+    const response = await handleRequest?.({
+      method: 'GET',
+      pathname: '/health',
+      headers: {},
+      rawBody: ''
+    });
+
+    expect(response).toEqual({
+      statusCode: 200,
+      body: {
+        code: 0,
+        status: 'ok',
+        ingressMode: 'webhook',
+        providers: ['warning-agent', 'pms-checkout']
+      }
+    });
+  });
+
   it('routes managed formKey requests through the runtime with the loaded registry', async () => {
     const tmp = mkdtempSync(join(tmpdir(), 'adapter-feishu-runtime-registry-'));
     const registryPath = join(tmp, 'forms.json');

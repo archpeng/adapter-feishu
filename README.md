@@ -2,11 +2,12 @@
 
 `adapter-feishu` is a **standalone Feishu/Lark channel service**.
 
-Today it exposes two bounded integration paths:
+Today it exposes three bounded integration paths:
 
 ```text
 warning-agent -> adapter-feishu -> Feishu/Lark
 business payload -> POST /providers/form-webhook -> Feishu Base/Bitable record write
+ai-pms/Hermes PMS checkout projection -> adapter-feishu pms-checkout provider -> Feishu card/callback -> ai-pms/Hermes callback forward
 ```
 
 The core architecture remains frozen as:
@@ -98,6 +99,7 @@ Current repo truth:
 - provider routing, bounded dedupe, and pending callback state are landed under `src/providers/**` and `src/state/**`
 - provider webhook, card-action dispatch, health routing, and `/providers/form-webhook` are landed under `src/server/**`
 - the first concrete provider path remains notify-first `warning-agent -> adapter-feishu -> Feishu/Lark`
+- `pms-checkout` is a provider-only PMS checkout card/callback surface: it renders dry-run/result cards, persists pending `pms.checkout.confirm` actions, validates card callbacks, and forwards typed confirmations to ai-pms/Hermes without executing PMS Core
 - the form path writes records into an **existing** Feishu Base/table through `bitable.appTableRecord.create`
 - managed form mode resolves `formKey` through `ADAPTER_FEISHU_FORM_REGISTRY_PATH`, maps business fields through `fieldMap`, injects `fixedFields`, and shields callers from raw target selection
 - optional schema preflight uses `bitable.appTableForm.get` + `bitable.appTableFormField.list`
@@ -203,6 +205,10 @@ src/
     contracts.ts             shared provider hooks and execution context
     registry.ts              enabled-provider registration and lookup
     router.ts                explicit/default provider resolution
+    pms-checkout/
+      contracts.ts           PMS checkout projection/callback validation and identity law helpers
+      cards.ts               PMS checkout dry-run/result card rendering helpers
+      index.ts               PMS checkout provider, pending action creation, callback forwarding
     warning-agent/
       contracts.ts           warning-agent payload contract + type guard
       normalize.ts           warning-agent -> shared notification mapping
@@ -211,7 +217,7 @@ src/
       index.ts               warning-agent provider definition
   state/
     dedupe.ts                bounded provider-scoped dedupe window
-    pendingStore.ts          bounded provider-scoped pending callback state
+    pendingStore.ts          bounded provider-scoped pending callback state with optional durable file backing
     tableWriteQueue.ts       bounded in-process same-table record-write serialization
   server/
     httpHost.ts              health + route dispatch for standalone HTTP mode

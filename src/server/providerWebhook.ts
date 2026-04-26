@@ -1,8 +1,9 @@
 import type { IncomingHttpHeaders } from 'node:http';
 import type { JsonRecord } from '../core/contracts.js';
-import type { ProviderNotificationSink } from '../providers/contracts.js';
+import type { ProviderCallbackForwarder, ProviderNotificationSink } from '../providers/contracts.js';
 import type { ProviderRouteResolution, ProviderRouter } from '../providers/router.js';
 import type { AlertDeduper } from '../state/dedupe.js';
+import type { PendingStore } from '../state/pendingStore.js';
 
 export interface ProviderWebhookRequest {
   method?: string;
@@ -22,6 +23,8 @@ export interface ProviderWebhookDispatchDeps {
   defaultTarget?: import('../core/contracts.js').DeliveryTarget;
   authToken?: string;
   deduper?: AlertDeduper;
+  pendingStore?: PendingStore;
+  callbackForwarder?: ProviderCallbackForwarder;
   dedupeKeyFromPayload?: (
     payload: JsonRecord,
     resolution: ProviderRouteResolution
@@ -79,7 +82,9 @@ export async function dispatchProviderWebhookRequest(
   const result = await provider.deliverNotification(payload, {
     replySink: deps.replySink,
     defaultTarget: deps.defaultTarget,
-    now: deps.now
+    now: deps.now,
+    pendingStore: deps.pendingStore,
+    callbackForwarder: deps.callbackForwarder
   }).catch((error: unknown) => {
     return {
       error

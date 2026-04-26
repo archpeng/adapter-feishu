@@ -1,5 +1,5 @@
 import type { DeliveryTarget, InboundTurn, JsonRecord } from '../core/contracts.js';
-import type { ProviderNotificationSink } from '../providers/contracts.js';
+import type { ProviderCallbackForwarder, ProviderNotificationSink } from '../providers/contracts.js';
 import type { ProviderRouter } from '../providers/router.js';
 import type { PendingStore } from '../state/pendingStore.js';
 
@@ -20,6 +20,7 @@ export interface CardActionDispatchDeps {
   replySink: ProviderNotificationSink;
   defaultTarget?: DeliveryTarget;
   now?: () => string;
+  callbackForwarder?: ProviderCallbackForwarder;
 }
 
 export async function dispatchCardActionRequest(
@@ -67,8 +68,34 @@ export async function dispatchCardActionRequest(
   const result = await provider.handleCallback(callbackTurn, {
     replySink: deps.replySink,
     defaultTarget: pendingRecord.target ?? deps.defaultTarget,
-    now: deps.now
-  });
+    now: deps.now,
+    pendingStore: deps.pendingStore,
+    callbackForwarder: deps.callbackForwarder
+  }).catch((error: unknown) => ({ error }));
+
+  if ('error' in result) {
+    return {
+      statusCode: 502,
+      body: {
+        code: 502,
+        providerKey,
+        message: 'callback_forward_failed',
+        error: errorMessage(result.error)
+      }
+    };
+  }
+
+  if (result.status === 'failed') {
+    return {
+      statusCode: 409,
+      body: {
+        code: 409,
+        providerKey,
+        message: result.message ?? 'callback_rejected'
+      }
+    };
+  }
+
   deps.pendingStore.consume(providerKey, pendingId);
 
   return {
@@ -96,9 +123,10 @@ function buildCallbackTurn(
     intent: 'callback',
     receivedAt,
     providerKey,
+    actor: actorFromPayload(payload),
     target: target ?? {
       channel: 'feishu',
-      messageId: stringField(payload, 'open_message_id')
+      messageId: openMessageId(payload)
     },
     callback: {
       actionId: stringField(actionValue, 'actionId') ?? 'unknown-action',
@@ -106,20 +134,48 @@ function buildCallbackTurn(
     },
     rawEvent: payload,
     metadata: {
-      openMessageId: stringField(payload, 'open_message_id') ?? '',
+      openMessageId: openMessageId(payload) ?? '',
       pendingId: stringField(actionValue, 'pendingId') ?? ''
     }
   };
 }
 
+function actorFromPayload(payload: JsonRecord): InboundTurn['actor'] | undefined {
+  const event = recordField(payload, 'event');
+  const operator = recordField(payload, 'operator') ?? recordField(payload, 'user') ?? recordField(event, 'operator');
+  if (!operator) {
+    return undefined;
+  }
+  const openId = stringField(operator, 'open_id') ?? stringField(operator, 'openId');
+  const userId = stringField(operator, 'user_id') ?? stringField(operator, 'userId');
+  const tenantKey = stringField(operator, 'tenant_key') ?? stringField(operator, 'tenantKey') ?? stringField(operator, 'union_id');
+  const displayName = stringField(operator, 'name') ?? stringField(operator, 'displayName');
+  if (!openId && !userId && !tenantKey && !displayName) {
+    return undefined;
+  }
+  return {
+    openId,
+    userId,
+    tenantKey,
+    displayName
+  };
+}
+
+function openMessageId(payload: JsonRecord): string | undefined {
+  const event = recordField(payload, 'event');
+  const context = recordField(payload, 'context') ?? recordField(event, 'context');
+  return stringField(payload, 'open_message_id') ?? stringField(context ?? {}, 'open_message_id');
+}
+
 function extractActionValue(payload: JsonRecord): JsonRecord {
-  const action = recordField(payload, 'action');
+  const event = recordField(payload, 'event');
+  const action = recordField(payload, 'action') ?? recordField(event, 'action');
   const actionValue = action ? recordField(action, 'value') : undefined;
   return actionValue ?? {};
 }
 
-function recordField(value: JsonRecord, key: string): JsonRecord | undefined {
-  const candidate = value[key];
+function recordField(value: JsonRecord | undefined, key: string): JsonRecord | undefined {
+  const candidate = value?.[key];
   return isRecord(candidate) ? (candidate as JsonRecord) : undefined;
 }
 
@@ -139,4 +195,8 @@ function parseJsonRecord(rawBody: string): JsonRecord | null {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'unknown_error';
 }

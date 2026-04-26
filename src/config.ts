@@ -38,6 +38,14 @@ export interface AdapterConfig {
   state: {
     dedupeTtlSeconds: number;
     pendingTtlSeconds: number;
+    pendingStatePath?: string;
+  };
+  pmsCheckout: {
+    callbackUrl?: string;
+    callbackToken?: string;
+    callbackTokenHeader: 'X-AI-PMS-CALLBACK-TOKEN';
+    callbackTokenEnvName: 'AI_PMS_CALLBACK_TOKEN';
+    callbackTimeoutMs: number;
   };
 }
 
@@ -124,6 +132,19 @@ function parseFeishuUserIdType(
   throw new Error(`${key} must be user_id, union_id, or open_id`);
 }
 
+function parseOptionalUrl(env: Record<string, string | undefined>, key: string): string | undefined {
+  const raw = env[key]?.trim();
+  if (!raw) {
+    return undefined;
+  }
+
+  try {
+    return new URL(raw).toString();
+  } catch {
+    throw new Error(`${key} must be an absolute URL`);
+  }
+}
+
 function parseOptionalFormDefaultTarget(
   env: Record<string, string | undefined>
 ): FeishuFormDefaultTargetConfig | undefined {
@@ -152,9 +173,17 @@ function parseOptionalFormDefaultTarget(
 export function loadConfig(env: Record<string, string | undefined> = process.env): AdapterConfig {
   const providerKeys = parseCsv(env, 'ADAPTER_FEISHU_PROVIDER_KEYS', ['warning-agent']);
   const defaultProvider = env.ADAPTER_FEISHU_DEFAULT_PROVIDER?.trim() || providerKeys[0];
+  const pmsCheckoutCallbackUrl = parseOptionalUrl(env, 'ADAPTER_FEISHU_PMS_CHECKOUT_CALLBACK_URL');
+  const pmsCheckoutCallbackToken = env.AI_PMS_CALLBACK_TOKEN?.trim() || undefined;
 
   if (defaultProvider && !providerKeys.includes(defaultProvider)) {
     throw new Error('ADAPTER_FEISHU_DEFAULT_PROVIDER must be included in ADAPTER_FEISHU_PROVIDER_KEYS');
+  }
+
+  if (pmsCheckoutCallbackUrl && !pmsCheckoutCallbackToken) {
+    throw new Error(
+      'AI_PMS_CALLBACK_TOKEN must be set when ADAPTER_FEISHU_PMS_CHECKOUT_CALLBACK_URL is set'
+    );
   }
 
   return {
@@ -186,7 +215,15 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     },
     state: {
       dedupeTtlSeconds: parsePositiveInteger(env, 'ADAPTER_FEISHU_DEDUPE_TTL_SECONDS', 300),
-      pendingTtlSeconds: parsePositiveInteger(env, 'ADAPTER_FEISHU_PENDING_TTL_SECONDS', 900)
+      pendingTtlSeconds: parsePositiveInteger(env, 'ADAPTER_FEISHU_PENDING_TTL_SECONDS', 900),
+      pendingStatePath: env.ADAPTER_FEISHU_PENDING_STATE_PATH?.trim() || undefined
+    },
+    pmsCheckout: {
+      callbackUrl: pmsCheckoutCallbackUrl,
+      callbackToken: pmsCheckoutCallbackToken,
+      callbackTokenHeader: 'X-AI-PMS-CALLBACK-TOKEN',
+      callbackTokenEnvName: 'AI_PMS_CALLBACK_TOKEN',
+      callbackTimeoutMs: parsePositiveInteger(env, 'ADAPTER_FEISHU_PMS_CHECKOUT_CALLBACK_TIMEOUT_MS', 5_000)
     }
   };
 }

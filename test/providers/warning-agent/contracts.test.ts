@@ -51,7 +51,7 @@ describe('warning-agent notification payload contract', () => {
       'runId must be a non-empty string',
       'severity must be one of info, warning, critical',
       'target.channel must be feishu',
-      'target must include chatId or openId',
+      'target must include chatId, openId, userId, or unionId',
       'actions[0].actionId must be a non-empty string',
       'actions[0].style must be default, primary, or danger'
     ]);

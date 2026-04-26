@@ -96,6 +96,33 @@ When enabled, provider pushes to `/providers/webhook` must send either:
 - `Authorization: Bearer <shared-token>`
 - `x-adapter-provider-token: <shared-token>`
 
+## PMS checkout provider local mode
+
+To enable the PMS checkout card/callback provider in the local sandbox profile:
+
+```env
+ADAPTER_FEISHU_PROVIDER_KEYS=warning-agent,pms-checkout
+ADAPTER_FEISHU_DEFAULT_PROVIDER=warning-agent
+ADAPTER_FEISHU_ALLOW_PROVIDER_OVERRIDE=true
+ADAPTER_FEISHU_PENDING_STATE_PATH=.local/pending-actions.json
+ADAPTER_FEISHU_PMS_CHECKOUT_CALLBACK_URL=http://127.0.0.1:<ai-pms-port>/pms/checkout/callback
+ADAPTER_FEISHU_PMS_CHECKOUT_CALLBACK_TIMEOUT_MS=5000
+AI_PMS_CALLBACK_TOKEN=<local secret, do not commit>
+```
+
+Expected health shape when enabled:
+
+```json
+{
+  "code": 0,
+  "status": "ok",
+  "ingressMode": "long_connection",
+  "providers": ["warning-agent", "pms-checkout"]
+}
+```
+
+The provider persists pending `pms.checkout.confirm` actions before dry-run card delivery, reloads them from `ADAPTER_FEISHU_PENDING_STATE_PATH` after normal process restart, rejects stale/duplicate/action-mismatch callbacks, and forwards accepted callbacks to ai-pms/Hermes with header `X-AI-PMS-CALLBACK-TOKEN` sourced from `AI_PMS_CALLBACK_TOKEN`.
+
 ## Real Feishu smoke test
 
 With a real Feishu app configured in `.env` and the adapter running:

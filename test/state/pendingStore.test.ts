@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createPendingStore } from '../../src/state/pendingStore.js';
 
@@ -25,6 +28,43 @@ describe('createPendingStore', () => {
 
     now = 4_000;
     expect(store.list('warning-agent')).toEqual([]);
+  });
+
+  it('persists pending actions across store recreation when a state path is configured', () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'adapter-feishu-pending-store-'));
+    const statePath = join(tmp, 'pending-actions.json');
+
+    try {
+      const firstStore = createPendingStore({
+        ttlMs: 10_000,
+        now: () => 1_000,
+        idGenerator: () => 'pending-durable-1',
+        statePath
+      });
+      const record = firstStore.put({
+        providerKey: 'pms-checkout',
+        actionId: 'pms.checkout.confirm',
+        payload: { roomId: 'room-1001' },
+        target: { channel: 'feishu', chatId: 'oc-chat-1' }
+      });
+
+      const restartedStore = createPendingStore({
+        ttlMs: 10_000,
+        now: () => 2_000,
+        statePath
+      });
+      expect(restartedStore.get('pms-checkout', 'pending-durable-1')).toEqual(record);
+      expect(restartedStore.consume('pms-checkout', 'pending-durable-1')).toEqual(record);
+
+      const afterConsumeRestart = createPendingStore({
+        ttlMs: 10_000,
+        now: () => 3_000,
+        statePath
+      });
+      expect(afterConsumeRestart.get('pms-checkout', 'pending-durable-1')).toBeUndefined();
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
   });
 
   it('expires stale pending actions and only lists live records', () => {

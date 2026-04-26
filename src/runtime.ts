@@ -20,6 +20,11 @@ import {
 } from './providers/registry.js';
 import { createProviderRouter, type ProviderRouter } from './providers/router.js';
 import {
+  PMS_CHECKOUT_PROVIDER_KEY,
+  createPmsCheckoutHttpCallbackForwarder,
+  createPmsCheckoutProvider
+} from './providers/pms-checkout/index.js';
+import {
   WARNING_AGENT_PROVIDER_KEY,
   createWarningAgentProvider,
   getWarningAgentDedupeKey,
@@ -112,6 +117,22 @@ export function createAdapterRuntime(
     registerProvider(providerRegistry, createWarningAgentProvider());
   }
 
+  const pmsCheckoutConfig = config.pmsCheckout;
+  const pmsCheckoutCallbackForwarder = pmsCheckoutConfig?.callbackUrl && pmsCheckoutConfig.callbackToken
+    ? createPmsCheckoutHttpCallbackForwarder({
+        url: pmsCheckoutConfig.callbackUrl,
+        token: pmsCheckoutConfig.callbackToken,
+        headerName: pmsCheckoutConfig.callbackTokenHeader,
+        timeoutMs: pmsCheckoutConfig.callbackTimeoutMs
+      })
+    : undefined;
+
+  if (config.providers.keys.includes(PMS_CHECKOUT_PROVIDER_KEY)) {
+    registerProvider(providerRegistry, createPmsCheckoutProvider({
+      callbackForwarder: pmsCheckoutCallbackForwarder
+    }));
+  }
+
   const providerRouter = createProviderRouter(providerRegistry, {
     defaultProviderKey: config.providers.defaultProvider,
     allowProviderOverride: config.providers.allowProviderOverride
@@ -120,7 +141,8 @@ export function createAdapterRuntime(
     ttlMs: config.state.dedupeTtlSeconds * 1000
   });
   const pendingStore = createPendingStore({
-    ttlMs: config.state.pendingTtlSeconds * 1000
+    ttlMs: config.state.pendingTtlSeconds * 1000,
+    statePath: config.state.pendingStatePath
   });
   const tableWriteQueue = createTableWriteQueue();
   const formRegistry = config.form.registryPath
@@ -156,7 +178,9 @@ export function createAdapterRuntime(
       await provider.handleCallback(turn, {
         replySink,
         defaultTarget: turn.target,
-        now
+        now,
+        pendingStore,
+        callbackForwarder: pmsCheckoutCallbackForwarder
       });
     }
   };
@@ -216,7 +240,9 @@ export function createAdapterRuntime(
 
               return stringField(payload, 'dedupeKey');
             },
-            now
+            now,
+            pendingStore,
+            callbackForwarder: pmsCheckoutCallbackForwarder
           });
         },
         handleFormWebhook(requestBody) {
@@ -236,7 +262,8 @@ export function createAdapterRuntime(
             providerRouter,
             pendingStore,
             replySink,
-            now
+            now,
+            callbackForwarder: pmsCheckoutCallbackForwarder
           });
         }
       });

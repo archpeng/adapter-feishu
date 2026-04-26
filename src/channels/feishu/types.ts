@@ -1,6 +1,6 @@
 import type { DeliveryTarget, InboundTurn, JsonRecord } from '../../core/contracts.js';
 
-export type FeishuReceiveIdType = 'chat_id' | 'open_id';
+export type FeishuReceiveIdType = 'chat_id' | 'open_id' | 'user_id' | 'union_id';
 
 export interface FeishuMessageTarget {
   receiveIdType: FeishuReceiveIdType;
@@ -63,6 +63,22 @@ export function resolveFeishuMessageTarget(target: DeliveryTarget): FeishuMessag
     };
   }
 
+  if (target.userId) {
+    return {
+      receiveIdType: 'user_id',
+      receiveId: target.userId,
+      threadId: target.threadId
+    };
+  }
+
+  if (target.unionId) {
+    return {
+      receiveIdType: 'union_id',
+      receiveId: target.unionId,
+      threadId: target.threadId
+    };
+  }
+
   if (target.chatId) {
     return {
       receiveIdType: 'chat_id',
@@ -71,7 +87,7 @@ export function resolveFeishuMessageTarget(target: DeliveryTarget): FeishuMessag
     };
   }
 
-  throw new Error('Feishu target must include either openId or chatId');
+  throw new Error('Feishu target must include chatId, openId, userId, or unionId');
 }
 
 export function normalizeFeishuMessageEvent(raw: FeishuEventEnvelope): InboundTurn | null {
