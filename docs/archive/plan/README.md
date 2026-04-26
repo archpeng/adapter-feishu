@@ -12,6 +12,13 @@ There is currently **no active pack** in `docs/plan/*`.
 
 ## Archived packs
 
+### AI PMS Core bootstrap v1
+
+- `ai-pms-core-bootstrap-v1-2026-04-26_PLAN.md`
+- `ai-pms-core-bootstrap-v1-2026-04-26_STATUS.md`
+- `ai-pms-core-bootstrap-v1-2026-04-26_WORKSET.md`
+- `ai-pms-core-bootstrap-v1-2026-04-26_CLOSEOUT.md`
+
 ### PMS smart intake v1
 
 - `adapter-feishu-pms-smart-intake-v1-2026-04-24_PLAN.md`

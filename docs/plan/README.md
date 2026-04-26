@@ -2,30 +2,28 @@
 
 ## Active Pack
 
-- `docs/plan/ai-pms-core-bootstrap-v1_PLAN.md`
-- `docs/plan/ai-pms-core-bootstrap-v1_STATUS.md`
-- `docs/plan/ai-pms-core-bootstrap-v1_WORKSET.md`
+- none
 
 ## Current Active Slice
 
-- `S1`
+- none
 
 ## Intended Handoff
 
-- `execute-plan`
+- `plan-creator`
 
 ## Live control-plane state
 
-- active_step: `S1`
-- status: `ready_for_execution`
-- active_pack: `ai-pms-core-bootstrap-v1`
-- latest_closed_pack: `adapter-feishu-pms-smart-intake-v1-2026-04-24`
-- latest_closeout: `docs/archive/plan/adapter-feishu-pms-smart-intake-v1-2026-04-24_CLOSEOUT.md`
-- latest_completed_step: `S0`
+- active_step: `none`
+- status: `no_active_pack`
+- active_pack: `none`
+- latest_closed_pack: `ai-pms-core-bootstrap-v1-2026-04-26`
+- latest_closeout: `docs/archive/plan/ai-pms-core-bootstrap-v1-2026-04-26_CLOSEOUT.md`
+- latest_completed_step: `S6`
 
-## Active slice summary
+## Latest closeout summary
 
-`S1` creates the PMS-owned monorepo/workspace skeleton at `/home/peng/dt-git/github/pms-platform`, with `packages/contracts`, `packages/core`, baseline TypeScript/Vitest verification, and a repo-local plan anchor. It must not implement PMS business state-machine logic yet and must not modify `adapter-feishu/src/**`.
+`ai-pms-core-bootstrap-v1` is closed. PMS Core checkout proof is implemented and documented in `/home/peng/dt-git/github/pms-platform`; future PMS-owned R3 API/MCP work should start from a successor plan pack, preferably under `pms-platform/docs/plan/*`.
 
 ## Archived packs
 
@@ -34,5 +32,5 @@ Completed pack artifacts live under `docs/archive/plan/`.
 ## Notes
 
 - keep `docs/plan/README.md` as the small live control-plane entry
-- `docs/plan/*` is the active single-root parser-compatible control plane for the current orchestration pack
-- after `/home/peng/dt-git/github/pms-platform` exists, PMS-owned implementation truth should move into `pms-platform/docs/plan/*`
+- there is currently no active parser-compatible pack in `docs/plan/*`
+- PMS-owned implementation files live under `/home/peng/dt-git/github/pms-platform`; keep `adapter-feishu/src/**` free of PMS domain logic

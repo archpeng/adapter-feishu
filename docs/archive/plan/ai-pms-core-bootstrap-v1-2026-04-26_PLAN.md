@@ -86,7 +86,7 @@ stop_boundary:
 #### `S1` — pms-platform-bootstrap
 
 - Owner: `execute-plan`
-- State: `READY`
+- State: `DONE`
 - Priority: `high`
 
 目标：
@@ -123,7 +123,7 @@ stop_boundary:
 #### `S2` — contracts-baseline
 
 - Owner: `execute-plan`
-- State: `QUEUED`
+- State: `DONE`
 - Priority: `high`
 
 目标：
@@ -159,7 +159,7 @@ stop_boundary:
 #### `S3` — core-domain-model
 
 - Owner: `execute-plan`
-- State: `QUEUED`
+- State: `DONE`
 - Priority: `high`
 
 目标：
@@ -193,7 +193,7 @@ stop_boundary:
 #### `S4` — checkout-dry-run
 
 - Owner: `execute-plan`
-- State: `QUEUED`
+- State: `DONE`
 - Priority: `high`
 
 目标：
@@ -224,10 +224,16 @@ stop_boundary:
 1. Mutating state during dry-run.
 2. Returning prose-only plans that cannot be tested structurally.
 
+完成证据：
+
+1. `checkOut` dry-run returns structural plans/errors from `packages/core/src/index.ts`.
+2. Tests cover `occupied`, `dueOut`, vacant/non-checkoutable, unknown room, missing reason, missing idempotency key, confirm-mode rejection, missing mode, and no-mutation snapshots.
+3. `npm run verify` passed in `/home/peng/dt-git/github/pms-platform` with 2 test files and 15 tests passing.
+
 #### `S5` — checkout-confirm
 
 - Owner: `execute-plan`
-- State: `QUEUED`
+- State: `DONE`
 - Priority: `high`
 
 目标：
@@ -261,10 +267,16 @@ stop_boundary:
 1. Calling `adapter-feishu` from PMS Core.
 2. Letting confirmed checkout bypass audit or idempotency.
 
+完成证据：
+
+1. Confirmed checkout transitions room state, creates housekeeping task, audit, and domain events.
+2. Duplicate `idempotencyKey` returns the prior result without duplicate side effects.
+3. `npm run verify` passed in `/home/peng/dt-git/github/pms-platform` with 2 test files and 19 tests passing.
+
 #### `S6` — core-proof-closeout
 
 - Owner: `execute-plan`
-- State: `QUEUED`
+- State: `DONE`
 - Priority: `medium`
 
 目标：
@@ -294,6 +306,14 @@ stop_boundary:
 
 1. Expanding into full PMS workflow before the first checkout proof is closed.
 
+完成证据：
+
+1. Added `packages/core/README.md` documenting `CHECK_OUT` behavior, transition matrix, metadata, errors, events, audit, and idempotency.
+2. Added `docs/checkout-core-v1.md` documenting checkout proof status, test map, verification evidence, and R3 PMS API/MCP successor scope.
+3. Updated `/home/peng/dt-git/github/pms-platform/README.md` from bootstrap placeholder wording to current checkout proof wording.
+4. `npm run verify` passed in `/home/peng/dt-git/github/pms-platform` with 2 test files and 19 tests passing.
+5. Guard checks found no `adapter-feishu/src/**` changes and no forbidden Feishu/Hermes/lark/adapter references under `pms-platform/packages`.
+
 ## Verification Ladder
 
 1. `adapter-feishu`: keep `npm run verify` passing whenever this repo is touched.
@@ -304,7 +324,7 @@ stop_boundary:
 
 ## Handoff Policy
 
-- Active slice handoff: `execute-plan`.
+- Active slice handoff: `execution-reality-audit` for S6 review, then repo-local closeout prompt surface if accepted.
 - Replan if repo topology, package manager, or command metadata requirements become contested.
 - Review after each implementation slice should use evidence from tests and file diffs.
 - Do not proceed to Hermes MCP integration until S5/S6 proves PMS Core behavior.
