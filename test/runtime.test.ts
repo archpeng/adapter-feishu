@@ -521,8 +521,8 @@ describe('createAdapterRuntime', () => {
     }
   });
 
-  it('keeps deterministic PMS checkout command turns on the direct ai-pms route when conversation forwarding is configured', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true, status: 'dry_run_projected' }), { status: 202 }));
+  it('routes deterministic PMS checkout natural-language turns through ai-conversation when configured', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true, status: 'handled', intent: 'pms.checkout.start_dry_run' }), { status: 202 }));
     vi.stubGlobal('fetch', fetchMock);
     let handleTurn: Parameters<AdapterRuntimeDeps['createLongConnectionIngress']>[1] | undefined;
     const config = createConfig('long_connection');
@@ -599,10 +599,19 @@ describe('createAdapterRuntime', () => {
 
       expect(fetchMock).toHaveBeenCalledTimes(1);
       const [url, init] = fetchMock.mock.calls[0];
-      expect(url).toBe('http://127.0.0.1:8792/pms/checkout/feishu-message');
+      expect(url).toBe('http://127.0.0.1:8791/conversation/feishu-turn');
       expect(init?.headers).toMatchObject({
         'content-type': 'application/json',
-        'X-AI-PMS-CALLBACK-TOKEN': 'callback-token-1'
+        'X-AI-CONVERSATION-TOKEN': 'conversation-token-1'
+      });
+      const body = JSON.parse(String(init?.body));
+      expect(body).toMatchObject({
+        source: 'adapter-feishu',
+        turn: {
+          turnId: 'msg-checkout-1',
+          channel: 'feishu',
+          text: 'room 1001 checkout'
+        }
       });
     } finally {
       vi.unstubAllGlobals();

@@ -473,21 +473,10 @@ function shouldUsePmsCheckoutDirectRoute(
   if (resolvedProviderKey !== PMS_CHECKOUT_PROVIDER_KEY) {
     return false;
   }
-  if (turn.providerKey === PMS_CHECKOUT_PROVIDER_KEY) {
-    return true;
-  }
   if (!conversationForwardingConfigured) {
     return true;
   }
-  return isDeterministicPmsCheckoutText(turn.text);
-}
-
-function isDeterministicPmsCheckoutText(text: string | undefined): boolean {
-  const normalized = text?.trim().toLowerCase() ?? '';
-  if (!normalized) {
-    return false;
-  }
-  return /\b(checkout|check-out|check\s+out)\b/.test(normalized) || normalized.includes('退房');
+  return turn.providerKey === PMS_CHECKOUT_PROVIDER_KEY;
 }
 
 function authorizeAdapterOwnedTurn(
