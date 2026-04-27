@@ -63,9 +63,10 @@ This is the notify-first path for provider pushes such as `warning-agent -> adap
 
 ### Provider card action callback
 
-- `POST /providers/card-action`
+- `POST /webhook/card` for the real Feishu card-action callback URL
+- `POST /card-action` and `POST /providers/card-action` as compatibility/local-provider aliases
 
-This resolves provider-scoped pending callback state before forwarding callback turns to the provider.
+This resolves provider-scoped pending callback state before forwarding callback turns to the provider. Real Feishu callbacks should include `FEISHU_WEBHOOK_VERIFICATION_TOKEN` in the callback body token; token values and public callback URLs stay outside git. For local live sandbox proof, any HTTPS relay/tunnel must forward Feishu card-action requests to this adapter-owned path and health-gate proof must record only redacted-present callback configuration.
 
 ### Feishu webhook ingress
 
@@ -107,6 +108,8 @@ ADAPTER_FEISHU_ALLOW_PROVIDER_OVERRIDE=true
 ADAPTER_FEISHU_PENDING_STATE_PATH=.local/pending-actions.json
 ADAPTER_FEISHU_PMS_CHECKOUT_CALLBACK_URL=http://127.0.0.1:<ai-pms-port>/pms/checkout/callback
 ADAPTER_FEISHU_PMS_CHECKOUT_CALLBACK_TIMEOUT_MS=5000
+ADAPTER_FEISHU_CARD_ACTION_INGRESS_PATH=/webhook/card
+FEISHU_WEBHOOK_VERIFICATION_TOKEN=<local secret, do not commit>
 AI_PMS_CALLBACK_TOKEN=<local secret, do not commit>
 ```
 
@@ -121,7 +124,7 @@ Expected health shape when enabled:
 }
 ```
 
-The provider persists pending `pms.checkout.confirm` actions before dry-run card delivery, reloads them from `ADAPTER_FEISHU_PENDING_STATE_PATH` after normal process restart, rejects stale/duplicate/action-mismatch callbacks, and forwards accepted callbacks to ai-pms/Hermes with header `X-AI-PMS-CALLBACK-TOKEN` sourced from `AI_PMS_CALLBACK_TOKEN`.
+The provider persists pending `pms.checkout.confirm` actions before dry-run card delivery, reloads them from `ADAPTER_FEISHU_PENDING_STATE_PATH` after normal process restart, rejects stale/duplicate/action-mismatch callbacks, and forwards accepted callbacks to ai-pms/Hermes with header `X-AI-PMS-CALLBACK-TOKEN` sourced from `AI_PMS_CALLBACK_TOKEN`. The real Feishu callback route is `/webhook/card`; `/providers/card-action` remains for local provider/synthetic compatibility and is not sufficient proof of a real Feishu human click.
 
 ## Real Feishu smoke test
 

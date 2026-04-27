@@ -115,4 +115,87 @@ describe('dispatchCardActionRequest', () => {
     );
     expect(pendingStore.get('warning-agent', 'pending-1')).toBeUndefined();
   });
+
+  it('accepts the Feishu SDK card-action request shape on the real card webhook path', async () => {
+    const handleCallback = vi.fn().mockResolvedValue({
+      providerKey: 'warning-agent',
+      status: 'accepted',
+      message: 'callback acknowledged'
+    });
+    const registry = createProviderRegistry({
+      allowedProviderKeys: ['warning-agent'],
+      defaultProviderKey: 'warning-agent'
+    });
+    registerProvider(registry, createCallbackProvider(handleCallback));
+    const router = createProviderRouter(registry);
+    const pendingStore = createPendingStore({
+      ttlMs: 1_000,
+      now: () => 1_000,
+      idGenerator: () => 'pending-1'
+    });
+    pendingStore.put({
+      providerKey: 'warning-agent',
+      actionId: 'approve',
+      payload: { reportId: 'report-9' }
+    });
+
+    const response = await dispatchCardActionRequest(
+      {
+        method: 'POST',
+        pathname: '/webhook/card',
+        rawBody: JSON.stringify({
+          open_id: 'ou-frontdesk-1',
+          user_id: 'frontdesk-1',
+          tenant_key: 'tenant-1',
+          open_message_id: 'om_123',
+          open_chat_id: 'oc-chat-1',
+          token: 'feishu-token-1',
+          action: {
+            tag: 'button',
+            value: JSON.stringify({
+              actionId: 'approve',
+              pendingId: 'pending-1',
+              providerKey: 'warning-agent'
+            })
+          }
+        })
+      },
+      {
+        providerRouter: router,
+        pendingStore,
+        replySink: {
+          sendNotification: vi.fn().mockResolvedValue({
+            providerKey: 'warning-agent',
+            deliveryId: 'delivery-1',
+            channel: 'feishu',
+            status: 'delivered'
+          })
+        },
+        verificationToken: 'feishu-token-1',
+        now: () => '2026-04-20T00:00:00.000Z'
+      }
+    );
+
+    expect(response.statusCode).toBe(200);
+    expect(handleCallback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actor: {
+          openId: 'ou-frontdesk-1',
+          userId: 'frontdesk-1',
+          tenantKey: 'tenant-1',
+          displayName: undefined
+        },
+        target: {
+          channel: 'feishu',
+          chatId: 'oc-chat-1',
+          messageId: 'om_123'
+        },
+        metadata: {
+          openMessageId: 'om_123',
+          pendingId: 'pending-1'
+        }
+      }),
+      expect.anything()
+    );
+  });
 });

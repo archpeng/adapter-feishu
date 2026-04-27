@@ -5,7 +5,8 @@ import {
   createLongConnectionIngress,
   type LongConnectionConfig,
   type LongConnectionDeps,
-  type LongConnectionIngress
+  type LongConnectionIngress,
+  type LongConnectionOptions
 } from './channels/feishu/longConnection.js';
 import { createReplySink, type ReplySink } from './channels/feishu/replySink.js';
 import { type DispatchRequest, dispatchWebhookRequest } from './channels/feishu/webhook.js';
@@ -30,7 +31,7 @@ import {
   getWarningAgentDedupeKey,
   isWarningAgentNotificationPayload
 } from './providers/warning-agent/index.js';
-import { dispatchCardActionRequest } from './server/cardAction.js';
+import { dispatchCardActionRequest, type CardActionRequest } from './server/cardAction.js';
 import { dispatchFormWebhookRequest } from './server/formWebhook.js';
 import { dispatchAdapterHttpRequest, type AdapterHttpRequest, type AdapterHttpResponse } from './server/httpHost.js';
 import { dispatchProviderWebhookRequest } from './server/providerWebhook.js';
@@ -57,7 +58,7 @@ export interface AdapterRuntimeDeps {
   createClient(config: { appId: string; appSecret: string }): FeishuClient;
   createBitableClient(config: { appId: string; appSecret: string }): BitableClient;
   createReplySink(client: FeishuClient): ReplySink;
-  createLongConnectionIngress(config: LongConnectionConfig, handleTurn: Parameters<typeof createLongConnectionIngress>[1], deps?: LongConnectionDeps): LongConnectionIngress;
+  createLongConnectionIngress(config: LongConnectionConfig, handleTurn: Parameters<typeof createLongConnectionIngress>[1], deps?: LongConnectionDeps, options?: LongConnectionOptions): LongConnectionIngress;
   createHttpServer(
     config: { host: string; port: number },
     handleRequest: (request: AdapterHttpRequest) => Promise<AdapterHttpResponse>
@@ -74,8 +75,8 @@ const defaultDeps: AdapterRuntimeDeps = {
   createReplySink(client) {
     return createReplySink(client);
   },
-  createLongConnectionIngress(config, handleTurn) {
-    return createLongConnectionIngress(config, handleTurn);
+  createLongConnectionIngress(config, handleTurn, deps, options) {
+    return createLongConnectionIngress(config, handleTurn, deps, options);
   },
   createHttpServer(config, handleRequest) {
     const server = createServer(async (req, res) => {
@@ -185,12 +186,28 @@ export function createAdapterRuntime(
     }
   };
 
+  const handleCardActionRequest = (requestBody: CardActionRequest) => dispatchCardActionRequest(requestBody, {
+    providerRouter,
+    pendingStore,
+    replySink,
+    now,
+    callbackForwarder: pmsCheckoutCallbackForwarder,
+    verificationToken: config.feishu.verificationToken
+  });
+
   const longConnectionIngress = deps.createLongConnectionIngress(
     {
       appId: config.feishu.appId,
       appSecret: config.feishu.appSecret
     },
-    handleTurn
+    handleTurn,
+    undefined,
+    {
+      async handleCardAction(requestBody) {
+        const response = await handleCardActionRequest(requestBody);
+        return response.body;
+      }
+    }
   );
 
   const httpServer = deps.createHttpServer(
@@ -258,13 +275,7 @@ export function createAdapterRuntime(
           });
         },
         handleCardAction(requestBody) {
-          return dispatchCardActionRequest(requestBody, {
-            providerRouter,
-            pendingStore,
-            replySink,
-            now,
-            callbackForwarder: pmsCheckoutCallbackForwarder
-          });
+          return handleCardActionRequest(requestBody);
         }
       });
     }

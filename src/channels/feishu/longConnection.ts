@@ -6,8 +6,10 @@ export interface LongConnectionConfig {
   appSecret: string;
 }
 
+type EventHandlerResult = void | Record<string, unknown>;
+
 type EventDispatcherLike = {
-  register(handlers: Record<string, (data: Record<string, unknown>) => Promise<void>>): EventDispatcherLike;
+  register(handlers: Record<string, (data: Record<string, unknown>) => Promise<EventHandlerResult>>): EventDispatcherLike;
 };
 
 type WsClientLike = {
@@ -25,12 +27,25 @@ export interface LongConnectionIngress {
   stop(): Promise<void>;
 }
 
+export interface LongConnectionCardActionRequest {
+  method: 'POST';
+  pathname: '/webhook/card';
+  rawBody: string;
+}
+
+export type LongConnectionCardActionHandler = (request: LongConnectionCardActionRequest) => Promise<Record<string, unknown>>;
+
+export interface LongConnectionOptions {
+  handleCardAction?: LongConnectionCardActionHandler;
+}
+
 export function createLongConnectionIngress(
   config: LongConnectionConfig,
   handleTurn: FeishuTurnHandler,
-  deps: LongConnectionDeps = defaultDeps
+  deps: LongConnectionDeps = defaultDeps,
+  options: LongConnectionOptions = {}
 ): LongConnectionIngress {
-  const eventDispatcher = deps.createEventDispatcher().register({
+  const handlers: Record<string, (data: Record<string, unknown>) => Promise<EventHandlerResult>> = {
     'im.message.receive_v1': async (data) => {
       const rawEvent = toRawMessageEvent(data);
       const turn = normalizeFeishuMessageEvent(rawEvent);
@@ -43,7 +58,17 @@ export function createLongConnectionIngress(
         rawEvent
       });
     }
-  });
+  };
+
+  if (options.handleCardAction) {
+    handlers['card.action.trigger'] = async (data) => options.handleCardAction?.({
+      method: 'POST',
+      pathname: '/webhook/card',
+      rawBody: JSON.stringify(data)
+    });
+  }
+
+  const eventDispatcher = deps.createEventDispatcher().register(handlers);
   const wsClient = deps.createWsClient(config);
 
   return {

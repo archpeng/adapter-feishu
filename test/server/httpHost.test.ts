@@ -65,6 +65,15 @@ describe('dispatchAdapterHttpRequest', () => {
       },
       deps
     );
+    const realCardAction = await dispatchAdapterHttpRequest(
+      {
+        method: 'POST',
+        pathname: '/webhook/card',
+        headers: {},
+        rawBody: '{}'
+      },
+      deps
+    );
     const feishuWebhook = await dispatchAdapterHttpRequest(
       {
         method: 'POST',
@@ -92,10 +101,11 @@ describe('dispatchAdapterHttpRequest', () => {
       body: { code: 0, status: 'record_created', recordId: 'rec_1' }
     });
     expect(cardAction.statusCode).toBe(200);
+    expect(realCardAction.statusCode).toBe(200);
     expect(feishuWebhook.statusCode).toBe(200);
     expect(handleProviderWebhook).toHaveBeenCalledTimes(1);
     expect(handleFormWebhook).toHaveBeenCalledTimes(1);
-    expect(handleCardAction).toHaveBeenCalledTimes(1);
+    expect(handleCardAction).toHaveBeenCalledTimes(2);
     expect(handleFeishuWebhook).toHaveBeenCalledTimes(1);
     expect(handleFeishuWebhook).toHaveBeenCalledWith({
       method: 'POST',

@@ -229,6 +229,56 @@ describe('createAdapterRuntime', () => {
     expect(longConnectionStop).toHaveBeenCalledTimes(1);
   });
 
+  it('wires long-connection card actions through the shared card-action dispatcher', async () => {
+    let handleCardAction: AdapterRuntimeDeps['createLongConnectionIngress'] extends (
+      config: never,
+      handleTurn: never,
+      deps: never,
+      options?: infer Options
+    ) => never
+      ? NonNullable<Options>['handleCardAction']
+      : never;
+
+    createAdapterRuntime(createConfig('long_connection'), {
+      createClient: () => createFeishuClientStub(),
+      createBitableClient: () => createBitableClientStub(),
+      createReplySink: () => ({
+        sendNotification: vi.fn().mockResolvedValue({
+          providerKey: 'warning-agent',
+          deliveryId: 'delivery-1',
+          channel: 'feishu',
+          status: 'delivered'
+        })
+      }),
+      createHttpServer: () => ({
+        listen: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined)
+      }),
+      createLongConnectionIngress: (_config, _handleTurn, _deps, options) => {
+        handleCardAction = options?.handleCardAction;
+        return {
+          start: vi.fn().mockResolvedValue(undefined),
+          stop: vi.fn().mockResolvedValue(undefined)
+        };
+      }
+    });
+
+    const response = await handleCardAction?.({
+      method: 'POST',
+      pathname: '/webhook/card',
+      rawBody: JSON.stringify({
+        header: { token: 'token-1' },
+        event: { action: { value: {} } }
+      })
+    });
+
+    expect(response).toEqual({
+      code: 400,
+      message: 'invalid_action_payload',
+      blocker: 'adapter_card_action_ingress_invalid'
+    });
+  });
+
   it('registers pms-checkout at runtime and lists it on /health when enabled', async () => {
     let handleRequest: ((request: AdapterHttpRequest) => Promise<AdapterHttpResponse>) | undefined;
     const config = createConfig('webhook');

@@ -21,8 +21,8 @@ ai-pms / Hermes orchestrator
   -> POST /providers/webhook providerKey=pms-checkout projectionKind=dryRunCard|resultCard
   -> adapter-feishu renders Feishu card only
   -> Feishu human clicks pms.checkout.confirm
-  -> POST /providers/card-action
-  -> adapter-feishu validates/consumes durable pending action
+  -> POST /webhook/card real Feishu callback (or /providers/card-action local compatibility)
+  -> adapter-feishu validates token and consumes durable pending action
   -> adapter-feishu forwards typed callback to ai-pms/Hermes
 ```
 
@@ -34,6 +34,8 @@ ADAPTER_FEISHU_DEFAULT_PROVIDER=warning-agent
 ADAPTER_FEISHU_ALLOW_PROVIDER_OVERRIDE=true
 ADAPTER_FEISHU_PENDING_STATE_PATH=.local/pending-actions.json
 ADAPTER_FEISHU_PMS_CHECKOUT_CALLBACK_URL=http://127.0.0.1:<ai-pms-port>/pms/checkout/callback
+ADAPTER_FEISHU_CARD_ACTION_INGRESS_PATH=/webhook/card
+FEISHU_WEBHOOK_VERIFICATION_TOKEN=<local secret, do not commit>
 AI_PMS_CALLBACK_TOKEN=<local secret, do not commit>
 ```
 
@@ -42,6 +44,7 @@ Provider rules:
 - `pms-checkout` accepts only `feishuProjection.providerKey=pms-checkout` envelopes whose `canonicalSource` is `pms-platform`.
 - `projectionKind=dryRunCard` requires dry-run identity and distinct confirm identity; the adapter persists a pending `pms.checkout.confirm` action before card delivery.
 - `projectionKind=resultCard` renders PMS success/failure projections only; it creates no PMS state and no pending action.
+- Real Feishu card callbacks are accepted on `/webhook/card` and may use `/card-action` / `/providers/card-action` only as compatibility/local-provider aliases.
 - Card callbacks must carry `providerKey=pms-checkout`, `actionId=pms.checkout.confirm`, `pendingId`, room/correlation fields, dry-run identity, confirm identity, and `confirmMode=confirm`.
 - Callback forwarding uses `X-AI-PMS-CALLBACK-TOKEN` from env name `AI_PMS_CALLBACK_TOKEN`; token values must stay outside git.
 - adapter-feishu never calls PMS Core or the PMS local HTTP runtime directly for checkout confirm.

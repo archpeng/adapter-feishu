@@ -3,7 +3,7 @@ import { createLongConnectionIngress } from '../../../src/channels/feishu/longCo
 
 describe('createLongConnectionIngress', () => {
   it('registers message handler and forwards normalized inbound turns', async () => {
-    let registered: Record<string, (data: Record<string, unknown>) => Promise<void>> | null = null;
+    let registered: Record<string, (data: Record<string, unknown>) => Promise<unknown>> | null = null;
     const handleTurn = vi.fn().mockResolvedValue(undefined);
     const wsClient = {
       start: vi.fn().mockResolvedValue(undefined),
@@ -48,6 +48,61 @@ describe('createLongConnectionIngress', () => {
       }),
       expect.objectContaining({ source: 'long_connection' })
     );
+  });
+
+  it('registers card action handler and forwards long-connection card callbacks to the shared card dispatcher', async () => {
+    let registered: Record<string, (data: Record<string, unknown>) => Promise<unknown>> | null = null;
+    const handleCardAction = vi.fn().mockResolvedValue({ code: 0, status: 'accepted' });
+    const wsClient = {
+      start: vi.fn().mockResolvedValue(undefined),
+      stop: vi.fn().mockResolvedValue(undefined)
+    };
+    const payload = {
+      schema: '2.0',
+      header: {
+        event_id: 'evt-card-action-1',
+        event_type: 'card.action.trigger',
+        token: 'feishu-token-1'
+      },
+      event: {
+        action: {
+          value: {
+            providerKey: 'pms-checkout',
+            pendingId: 'pending-1',
+            actionId: 'pms.checkout.confirm'
+          }
+        }
+      }
+    };
+
+    const ingress = createLongConnectionIngress(
+      { appId: 'app-id', appSecret: 'app-secret' },
+      vi.fn().mockResolvedValue(undefined),
+      {
+        createWsClient: () => wsClient,
+        createEventDispatcher: () => ({
+          register(handlers) {
+            registered = handlers;
+            return this;
+          }
+        })
+      },
+      { handleCardAction }
+    );
+
+    await ingress.start();
+    if (!registered) {
+      throw new Error('expected handlers to be registered');
+    }
+
+    const result = await registered['card.action.trigger'](payload);
+
+    expect(result).toEqual({ code: 0, status: 'accepted' });
+    expect(handleCardAction).toHaveBeenCalledWith({
+      method: 'POST',
+      pathname: '/webhook/card',
+      rawBody: JSON.stringify(payload)
+    });
   });
 
   it('stops the ws client when available', async () => {

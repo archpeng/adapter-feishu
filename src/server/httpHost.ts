@@ -52,7 +52,7 @@ export async function dispatchAdapterHttpRequest(
     return deps.handleFormWebhook(request);
   }
 
-  if (pathname === '/card-action' || pathname === '/providers/card-action') {
+  if (pathname === '/card-action' || pathname === '/providers/card-action' || pathname === '/webhook/card') {
     return deps.handleCardAction(request);
   }
 

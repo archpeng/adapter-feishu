@@ -109,6 +109,33 @@ function createPmsRouter(callbackForwarder = { forwardCallback: vi.fn().mockReso
   };
 }
 
+function realFeishuCardActionEnvelope(actionPayload, overrides = {}) {
+  return {
+    schema: '2.0',
+    header: {
+      event_id: 'evt-card-action-1',
+      event_type: 'card.action.trigger',
+      token: 'feishu-token-1'
+    },
+    event: {
+      operator: {
+        user_id: 'frontdesk-1',
+        open_id: 'ou-frontdesk-1',
+        name: 'Front Desk'
+      },
+      context: {
+        open_message_id: 'om_123',
+        open_chat_id: 'oc-chat-1'
+      },
+      action: {
+        tag: 'button',
+        value: actionPayload
+      }
+    },
+    ...overrides
+  };
+}
+
 describe('pms-checkout runtime provider', () => {
   it('validates dry-run projection payloads, persists pending action before delivery, and emits a confirm button', async () => {
     const replySink = {
@@ -305,37 +332,28 @@ describe('pms-checkout runtime provider', () => {
     const first = await dispatchCardActionRequest(
       {
         method: 'POST',
-        pathname: '/providers/card-action',
-        rawBody: JSON.stringify({
-          action: { value: actionPayload },
-          open_message_id: 'om_123',
-          operator: {
-            user_id: 'frontdesk-1',
-            open_id: 'ou-frontdesk-1',
-            name: 'Front Desk'
-          }
-        })
+        pathname: '/webhook/card',
+        rawBody: JSON.stringify(realFeishuCardActionEnvelope(actionPayload))
       },
       {
         providerRouter: router,
         pendingStore,
         replySink,
+        verificationToken: 'feishu-token-1',
         now: () => '2026-04-26T00:01:00.000Z'
       }
     );
     const second = await dispatchCardActionRequest(
       {
         method: 'POST',
-        pathname: '/providers/card-action',
-        rawBody: JSON.stringify({
-          action: { value: actionPayload },
-          open_message_id: 'om_123'
-        })
+        pathname: '/webhook/card',
+        rawBody: JSON.stringify(realFeishuCardActionEnvelope(actionPayload))
       },
       {
         providerRouter: router,
         pendingStore,
         replySink,
+        verificationToken: 'feishu-token-1',
         now: () => '2026-04-26T00:01:01.000Z'
       }
     );
@@ -422,10 +440,10 @@ describe('pms-checkout runtime provider', () => {
     const response = await dispatchCardActionRequest(
       {
         method: 'POST',
-        pathname: '/providers/card-action',
-        rawBody: JSON.stringify({ action: { value: actionPayload } })
+        pathname: '/webhook/card',
+        rawBody: JSON.stringify(realFeishuCardActionEnvelope(actionPayload))
       },
-      { providerRouter: router, pendingStore, replySink }
+      { providerRouter: router, pendingStore, replySink, verificationToken: 'feishu-token-1' }
     );
 
     expect(response).toEqual({
@@ -436,6 +454,56 @@ describe('pms-checkout runtime provider', () => {
       }
     });
     expect(pendingStore.get(PMS_CHECKOUT_PROVIDER_KEY, 'pending-1001')).toBeDefined();
+    expect(callbackForwarder.forwardCallback).not.toHaveBeenCalled();
+  });
+
+  it('rejects stale real Feishu card-action callbacks after pending TTL without forwarding', async () => {
+    const replySink = {
+      sendNotification: vi.fn().mockResolvedValue({
+        providerKey: PMS_CHECKOUT_PROVIDER_KEY,
+        deliveryId: 'delivery-pms-checkout-dry-run',
+        channel: 'feishu',
+        status: 'delivered'
+      })
+    };
+    let nowMs = 1_000;
+    const pendingStore = createPendingStore({
+      ttlMs: 10,
+      now: () => nowMs,
+      idGenerator: () => 'pending-1001'
+    });
+    const callbackForwarder = {
+      forwardCallback: vi.fn().mockResolvedValue({ statusCode: 202, body: { code: 0 } })
+    };
+    const { router } = createPmsRouter(callbackForwarder);
+
+    await dispatchProviderWebhookRequest(
+      {
+        method: 'POST',
+        pathname: '/providers/webhook',
+        rawBody: JSON.stringify(dryRunProjection())
+      },
+      { providerRouter: router, replySink, pendingStore }
+    );
+    const actionPayload = replySink.sendNotification.mock.calls[0][0].actions[0].payload;
+    nowMs = 2_000;
+
+    const response = await dispatchCardActionRequest(
+      {
+        method: 'POST',
+        pathname: '/webhook/card',
+        rawBody: JSON.stringify(realFeishuCardActionEnvelope(actionPayload))
+      },
+      { providerRouter: router, pendingStore, replySink, verificationToken: 'feishu-token-1' }
+    );
+
+    expect(response).toEqual({
+      statusCode: 404,
+      body: {
+        code: 404,
+        message: 'pending_not_found'
+      }
+    });
     expect(callbackForwarder.forwardCallback).not.toHaveBeenCalled();
   });
 
