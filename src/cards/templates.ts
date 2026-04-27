@@ -67,18 +67,28 @@ export function renderInteractiveCard(params: RenderInteractiveCardParams): Reco
   if (params.actions && params.actions.length > 0) {
     elements.push({
       tag: 'action',
-      actions: params.actions.map((action) => ({
-        tag: 'button',
-        type: mapActionStyle(action.style),
-        text: {
-          tag: 'plain_text',
-          content: action.label
-        },
-        value: {
+      actions: params.actions.map((action) => {
+        const value = {
           actionId: action.actionId,
           ...action.payload
-        }
-      }))
+        };
+
+        return {
+          tag: 'button',
+          type: mapActionStyle(action.style),
+          text: {
+            tag: 'plain_text',
+            content: action.label
+          },
+          value,
+          behaviors: [
+            {
+              type: 'callback',
+              value
+            }
+          ]
+        };
+      })
     });
   }
 

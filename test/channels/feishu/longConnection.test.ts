@@ -50,6 +50,57 @@ describe('createLongConnectionIngress', () => {
     );
   });
 
+  it('normalizes full v2 message envelopes from the long-connection dispatcher', async () => {
+    let registered: Record<string, (data: Record<string, unknown>) => Promise<unknown>> | null = null;
+    const handleTurn = vi.fn().mockResolvedValue(undefined);
+    const wsClient = {
+      start: vi.fn().mockResolvedValue(undefined),
+      stop: vi.fn().mockResolvedValue(undefined)
+    };
+
+    const ingress = createLongConnectionIngress(
+      { appId: 'app-id', appSecret: 'app-secret' },
+      handleTurn,
+      {
+        createWsClient: () => wsClient,
+        createEventDispatcher: () => ({
+          register(handlers) {
+            registered = handlers;
+            return this;
+          }
+        })
+      }
+    );
+
+    await ingress.start();
+    if (!registered) {
+      throw new Error('expected handlers to be registered');
+    }
+
+    await registered['im.message.receive_v1']({
+      schema: '2.0',
+      header: { event_id: 'evt-1', event_type: 'im.message.receive_v1' },
+      event: {
+        sender: { sender_id: { open_id: 'ou-user-1' } },
+        message: {
+          message_id: 'msg-1',
+          chat_id: 'oc-chat-1',
+          message_type: 'text',
+          content: JSON.stringify({ text: 'hello from envelope' })
+        }
+      }
+    });
+
+    expect(handleTurn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        turnId: 'msg-1',
+        text: 'hello from envelope',
+        target: expect.objectContaining({ chatId: 'oc-chat-1' })
+      }),
+      expect.objectContaining({ source: 'long_connection' })
+    );
+  });
+
   it('registers card action handler and forwards long-connection card callbacks to the shared card dispatcher', async () => {
     let registered: Record<string, (data: Record<string, unknown>) => Promise<unknown>> | null = null;
     const handleCardAction = vi.fn().mockResolvedValue({ code: 0, status: 'accepted' });
@@ -101,7 +152,8 @@ describe('createLongConnectionIngress', () => {
     expect(handleCardAction).toHaveBeenCalledWith({
       method: 'POST',
       pathname: '/webhook/card',
-      rawBody: JSON.stringify(payload)
+      rawBody: JSON.stringify(payload),
+      trustedSource: 'long_connection'
     });
   });
 

@@ -45,6 +45,19 @@ function createConfig(
     state: {
       dedupeTtlSeconds: 300,
       pendingTtlSeconds: 900
+    },
+    pmsCheckout: {
+      callbackUrl: undefined,
+      inboundTurnUrl: undefined,
+      callbackToken: undefined,
+      callbackTokenHeader: 'X-AI-PMS-CALLBACK-TOKEN',
+      callbackTokenEnvName: 'AI_PMS_CALLBACK_TOKEN',
+      callbackTimeoutMs: 5000,
+      inboundTurnTimeoutMs: 5000,
+      allowedChatIds: [],
+      allowedOpenIds: [],
+      allowedUserIds: [],
+      allowedUnionIds: []
     }
   };
 }
@@ -229,6 +242,177 @@ describe('createAdapterRuntime', () => {
     expect(longConnectionStop).toHaveBeenCalledTimes(1);
   });
 
+  it('forwards pms-checkout command turns to the configured ai-pms inbound endpoint', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true, status: 'dry_run_projected' }), { status: 202 }));
+    vi.stubGlobal('fetch', fetchMock);
+    let handleTurn: Parameters<AdapterRuntimeDeps['createLongConnectionIngress']>[1] | undefined;
+    const config = createConfig('long_connection');
+    config.providers = {
+      keys: ['pms-checkout'],
+      defaultProvider: 'pms-checkout',
+      allowProviderOverride: false,
+      webhookAuthToken: undefined
+    };
+    config.pmsCheckout = {
+      callbackUrl: undefined,
+      inboundTurnUrl: 'http://127.0.0.1:8792/pms/checkout/feishu-message',
+      callbackToken: 'callback-token-1',
+      callbackTokenHeader: 'X-AI-PMS-CALLBACK-TOKEN',
+      callbackTokenEnvName: 'AI_PMS_CALLBACK_TOKEN',
+      callbackTimeoutMs: 5000,
+      inboundTurnTimeoutMs: 5000,
+      allowedChatIds: ['oc_test'],
+      allowedOpenIds: [],
+      allowedUserIds: [],
+      allowedUnionIds: []
+    };
+
+    try {
+      createAdapterRuntime(config, {
+        createClient: () => createFeishuClientStub(),
+        createBitableClient: () => createBitableClientStub(),
+        createReplySink: () => ({
+          sendNotification: vi.fn().mockResolvedValue({
+            providerKey: 'pms-checkout',
+            deliveryId: 'delivery-1',
+            channel: 'feishu',
+            status: 'delivered'
+          })
+        }),
+        createHttpServer: () => ({
+          listen: vi.fn().mockResolvedValue(undefined),
+          close: vi.fn().mockResolvedValue(undefined)
+        }),
+        createLongConnectionIngress: (_config, nextHandleTurn) => {
+          handleTurn = nextHandleTurn;
+          return {
+            start: vi.fn().mockResolvedValue(undefined),
+            stop: vi.fn().mockResolvedValue(undefined)
+          };
+        }
+      });
+
+      await handleTurn?.({
+        turnId: 'msg-1',
+        channel: 'feishu',
+        intent: 'command',
+        receivedAt: '2026-04-27T00:00:00.000Z',
+        actor: { openId: 'ou_test' },
+        target: { channel: 'feishu', chatId: 'oc_test', messageId: 'msg-1' },
+        text: 'room 1001 checkout',
+        rawEvent: {},
+        metadata: { eventType: 'im.message.receive_v1' }
+      }, {
+        source: 'long_connection',
+        rawEvent: {}
+      });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [url, init] = fetchMock.mock.calls[0];
+      expect(url).toBe('http://127.0.0.1:8792/pms/checkout/feishu-message');
+      expect(init?.headers).toMatchObject({
+        'content-type': 'application/json',
+        'X-AI-PMS-CALLBACK-TOKEN': 'callback-token-1'
+      });
+      const body = JSON.parse(String(init?.body));
+      expect(body).toMatchObject({
+        name: 'adapter-feishu-inbound-turn',
+        version: 'v1',
+        source: 'adapter-feishu',
+        providerKey: 'pms-checkout'
+      });
+      expect(body.turn.text).toBe('room 1001 checkout');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('does not forward pms-checkout command turns from unauthorized chat or actor', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 202 }));
+    vi.stubGlobal('fetch', fetchMock);
+    let handleTurn: Parameters<AdapterRuntimeDeps['createLongConnectionIngress']>[1] | undefined;
+    const config = createConfig('long_connection');
+    config.providers = {
+      keys: ['pms-checkout'],
+      defaultProvider: 'pms-checkout',
+      allowProviderOverride: false,
+      webhookAuthToken: undefined
+    };
+    config.pmsCheckout = {
+      callbackUrl: undefined,
+      inboundTurnUrl: 'http://127.0.0.1:8792/pms/checkout/feishu-message',
+      callbackToken: 'callback-token-1',
+      callbackTokenHeader: 'X-AI-PMS-CALLBACK-TOKEN',
+      callbackTokenEnvName: 'AI_PMS_CALLBACK_TOKEN',
+      callbackTimeoutMs: 5000,
+      inboundTurnTimeoutMs: 5000,
+      allowedChatIds: ['oc_allowed'],
+      allowedOpenIds: ['ou_allowed'],
+      allowedUserIds: [],
+      allowedUnionIds: []
+    };
+
+    try {
+      createAdapterRuntime(config, {
+        createClient: () => createFeishuClientStub(),
+        createBitableClient: () => createBitableClientStub(),
+        createReplySink: () => ({
+          sendNotification: vi.fn().mockResolvedValue({
+            providerKey: 'pms-checkout',
+            deliveryId: 'delivery-1',
+            channel: 'feishu',
+            status: 'delivered'
+          })
+        }),
+        createHttpServer: () => ({
+          listen: vi.fn().mockResolvedValue(undefined),
+          close: vi.fn().mockResolvedValue(undefined)
+        }),
+        createLongConnectionIngress: (_config, nextHandleTurn) => {
+          handleTurn = nextHandleTurn;
+          return {
+            start: vi.fn().mockResolvedValue(undefined),
+            stop: vi.fn().mockResolvedValue(undefined)
+          };
+        }
+      });
+
+      await handleTurn?.({
+        turnId: 'msg-denied-chat',
+        channel: 'feishu',
+        intent: 'command',
+        receivedAt: '2026-04-27T00:00:00.000Z',
+        actor: { openId: 'ou_allowed' },
+        target: { channel: 'feishu', chatId: 'oc_denied', messageId: 'msg-denied-chat' },
+        text: 'room 1001 checkout',
+        rawEvent: {},
+        metadata: { eventType: 'im.message.receive_v1' }
+      }, {
+        source: 'long_connection',
+        rawEvent: {}
+      });
+
+      await handleTurn?.({
+        turnId: 'msg-denied-actor',
+        channel: 'feishu',
+        intent: 'command',
+        receivedAt: '2026-04-27T00:00:01.000Z',
+        actor: { openId: 'ou_denied' },
+        target: { channel: 'feishu', chatId: 'oc_allowed', messageId: 'msg-denied-actor' },
+        text: 'room 1001 checkout',
+        rawEvent: {},
+        metadata: { eventType: 'im.message.receive_v1' }
+      }, {
+        source: 'long_connection',
+        rawEvent: {}
+      });
+
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('wires long-connection card actions through the shared card-action dispatcher', async () => {
     let handleCardAction: AdapterRuntimeDeps['createLongConnectionIngress'] extends (
       config: never,
@@ -290,10 +474,16 @@ describe('createAdapterRuntime', () => {
     };
     config.pmsCheckout = {
       callbackUrl: 'http://127.0.0.1:8792/pms/checkout/callback',
+      inboundTurnUrl: undefined,
       callbackToken: 'callback-token-1',
       callbackTokenHeader: 'X-AI-PMS-CALLBACK-TOKEN',
       callbackTokenEnvName: 'AI_PMS_CALLBACK_TOKEN',
-      callbackTimeoutMs: 5000
+      callbackTimeoutMs: 5000,
+      inboundTurnTimeoutMs: 5000,
+      allowedChatIds: [],
+      allowedOpenIds: [],
+      allowedUserIds: [],
+      allowedUnionIds: []
     };
 
     createAdapterRuntime(config, {

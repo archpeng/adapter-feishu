@@ -42,10 +42,16 @@ export interface AdapterConfig {
   };
   pmsCheckout: {
     callbackUrl?: string;
+    inboundTurnUrl?: string;
     callbackToken?: string;
     callbackTokenHeader: 'X-AI-PMS-CALLBACK-TOKEN';
     callbackTokenEnvName: 'AI_PMS_CALLBACK_TOKEN';
     callbackTimeoutMs: number;
+    inboundTurnTimeoutMs: number;
+    allowedChatIds: string[];
+    allowedOpenIds: string[];
+    allowedUserIds: string[];
+    allowedUnionIds: string[];
   };
 }
 
@@ -174,15 +180,27 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   const providerKeys = parseCsv(env, 'ADAPTER_FEISHU_PROVIDER_KEYS', ['warning-agent']);
   const defaultProvider = env.ADAPTER_FEISHU_DEFAULT_PROVIDER?.trim() || providerKeys[0];
   const pmsCheckoutCallbackUrl = parseOptionalUrl(env, 'ADAPTER_FEISHU_PMS_CHECKOUT_CALLBACK_URL');
+  const pmsCheckoutInboundTurnUrl = parseOptionalUrl(env, 'ADAPTER_FEISHU_PMS_CHECKOUT_INBOUND_TURN_URL');
   const pmsCheckoutCallbackToken = env.AI_PMS_CALLBACK_TOKEN?.trim() || undefined;
+  const pmsCheckoutAllowedChatIds = parseCsv(
+    env,
+    'ADAPTER_FEISHU_ALLOWED_CHAT_IDS',
+    env.FEISHU_HOME_CHANNEL?.trim() ? [env.FEISHU_HOME_CHANNEL.trim()] : []
+  );
 
   if (defaultProvider && !providerKeys.includes(defaultProvider)) {
     throw new Error('ADAPTER_FEISHU_DEFAULT_PROVIDER must be included in ADAPTER_FEISHU_PROVIDER_KEYS');
   }
 
-  if (pmsCheckoutCallbackUrl && !pmsCheckoutCallbackToken) {
+  if ((pmsCheckoutCallbackUrl || pmsCheckoutInboundTurnUrl) && !pmsCheckoutCallbackToken) {
     throw new Error(
-      'AI_PMS_CALLBACK_TOKEN must be set when ADAPTER_FEISHU_PMS_CHECKOUT_CALLBACK_URL is set'
+      'AI_PMS_CALLBACK_TOKEN must be set when ADAPTER_FEISHU_PMS_CHECKOUT_CALLBACK_URL or ADAPTER_FEISHU_PMS_CHECKOUT_INBOUND_TURN_URL is set'
+    );
+  }
+
+  if (pmsCheckoutInboundTurnUrl && pmsCheckoutAllowedChatIds.length === 0) {
+    throw new Error(
+      'ADAPTER_FEISHU_ALLOWED_CHAT_IDS or FEISHU_HOME_CHANNEL must be set when ADAPTER_FEISHU_PMS_CHECKOUT_INBOUND_TURN_URL is set'
     );
   }
 
@@ -220,10 +238,16 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     },
     pmsCheckout: {
       callbackUrl: pmsCheckoutCallbackUrl,
+      inboundTurnUrl: pmsCheckoutInboundTurnUrl,
       callbackToken: pmsCheckoutCallbackToken,
       callbackTokenHeader: 'X-AI-PMS-CALLBACK-TOKEN',
       callbackTokenEnvName: 'AI_PMS_CALLBACK_TOKEN',
-      callbackTimeoutMs: parsePositiveInteger(env, 'ADAPTER_FEISHU_PMS_CHECKOUT_CALLBACK_TIMEOUT_MS', 5_000)
+      callbackTimeoutMs: parsePositiveInteger(env, 'ADAPTER_FEISHU_PMS_CHECKOUT_CALLBACK_TIMEOUT_MS', 5_000),
+      inboundTurnTimeoutMs: parsePositiveInteger(env, 'ADAPTER_FEISHU_PMS_CHECKOUT_INBOUND_TURN_TIMEOUT_MS', 5_000),
+      allowedChatIds: pmsCheckoutAllowedChatIds,
+      allowedOpenIds: parseCsv(env, 'ADAPTER_FEISHU_ALLOWED_OPEN_IDS', []),
+      allowedUserIds: parseCsv(env, 'ADAPTER_FEISHU_ALLOWED_USER_IDS', []),
+      allowedUnionIds: parseCsv(env, 'ADAPTER_FEISHU_ALLOWED_UNION_IDS', [])
     }
   };
 }

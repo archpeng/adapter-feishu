@@ -11,6 +11,7 @@ export interface CardActionRequest {
   pathname?: string;
   headers?: IncomingHttpHeaders;
   rawBody: string;
+  trustedSource?: 'long_connection';
 }
 
 export interface CardActionResponse {
@@ -46,7 +47,7 @@ export async function dispatchCardActionRequest(
     return { statusCode: 400, body: { code: 400, message: 'invalid_json' } };
   }
 
-  if (!verifyCardActionToken(payload, deps.verificationToken)) {
+  if (!verifyCardActionToken(payload, deps.verificationToken, request.trustedSource)) {
     return {
       statusCode: 401,
       body: {
@@ -252,7 +253,10 @@ function extractActionValue(payload: JsonRecord): JsonRecord {
   return {};
 }
 
-function verifyCardActionToken(payload: JsonRecord, expected: string | undefined): boolean {
+function verifyCardActionToken(payload: JsonRecord, expected: string | undefined, trustedSource: CardActionRequest['trustedSource']): boolean {
+  if (trustedSource === 'long_connection') {
+    return true;
+  }
   if (!expected) {
     return true;
   }

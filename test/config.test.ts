@@ -41,10 +41,16 @@ describe('loadConfig', () => {
     });
     expect(config.pmsCheckout).toEqual({
       callbackUrl: undefined,
+      inboundTurnUrl: undefined,
       callbackToken: undefined,
       callbackTokenHeader: 'X-AI-PMS-CALLBACK-TOKEN',
       callbackTokenEnvName: 'AI_PMS_CALLBACK_TOKEN',
-      callbackTimeoutMs: 5000
+      callbackTimeoutMs: 5000,
+      inboundTurnTimeoutMs: 5000,
+      allowedChatIds: [],
+      allowedOpenIds: [],
+      allowedUserIds: [],
+      allowedUnionIds: []
     });
   });
 
@@ -69,6 +75,12 @@ describe('loadConfig', () => {
       ADAPTER_FEISHU_PENDING_STATE_PATH: '.local/pending-actions.json',
       ADAPTER_FEISHU_PMS_CHECKOUT_CALLBACK_URL: 'http://127.0.0.1:8792/pms/checkout/callback',
       ADAPTER_FEISHU_PMS_CHECKOUT_CALLBACK_TIMEOUT_MS: '2500',
+      ADAPTER_FEISHU_PMS_CHECKOUT_INBOUND_TURN_URL: 'http://127.0.0.1:8792/pms/checkout/feishu-message',
+      ADAPTER_FEISHU_PMS_CHECKOUT_INBOUND_TURN_TIMEOUT_MS: '3000',
+      ADAPTER_FEISHU_ALLOWED_CHAT_IDS: 'oc-chat-1, oc-chat-2',
+      ADAPTER_FEISHU_ALLOWED_OPEN_IDS: 'ou-user-1',
+      ADAPTER_FEISHU_ALLOWED_USER_IDS: 'user-1',
+      ADAPTER_FEISHU_ALLOWED_UNION_IDS: 'union-1',
       AI_PMS_CALLBACK_TOKEN: 'callback-token-1'
     });
 
@@ -97,10 +109,16 @@ describe('loadConfig', () => {
     });
     expect(config.pmsCheckout).toEqual({
       callbackUrl: 'http://127.0.0.1:8792/pms/checkout/callback',
+      inboundTurnUrl: 'http://127.0.0.1:8792/pms/checkout/feishu-message',
       callbackToken: 'callback-token-1',
       callbackTokenHeader: 'X-AI-PMS-CALLBACK-TOKEN',
       callbackTokenEnvName: 'AI_PMS_CALLBACK_TOKEN',
-      callbackTimeoutMs: 2500
+      callbackTimeoutMs: 2500,
+      inboundTurnTimeoutMs: 3000,
+      allowedChatIds: ['oc-chat-1', 'oc-chat-2'],
+      allowedOpenIds: ['ou-user-1'],
+      allowedUserIds: ['user-1'],
+      allowedUnionIds: ['union-1']
     });
   });
 
@@ -145,7 +163,30 @@ describe('loadConfig', () => {
     ).toThrow(/ADAPTER_FEISHU_FORM_DEFAULT_APP_TOKEN/);
   });
 
-  it('requires callback auth token when PMS checkout callback URL is configured', () => {
+  it('uses FEISHU_HOME_CHANNEL as the adapter-owned PMS checkout chat allowlist fallback', () => {
+    const config = loadConfig({
+      FEISHU_APP_ID: 'cli_test',
+      FEISHU_APP_SECRET: 'secret_test',
+      FEISHU_HOME_CHANNEL: 'oc-current-customer',
+      ADAPTER_FEISHU_PMS_CHECKOUT_INBOUND_TURN_URL: 'http://127.0.0.1:8792/pms/checkout/feishu-message',
+      AI_PMS_CALLBACK_TOKEN: 'callback-token-1'
+    });
+
+    expect(config.pmsCheckout.allowedChatIds).toEqual(['oc-current-customer']);
+  });
+
+  it('requires adapter-owned PMS checkout chat allowlist when inbound turn forwarding is configured', () => {
+    expect(() =>
+      loadConfig({
+        FEISHU_APP_ID: 'cli_test',
+        FEISHU_APP_SECRET: 'secret_test',
+        ADAPTER_FEISHU_PMS_CHECKOUT_INBOUND_TURN_URL: 'http://127.0.0.1:8792/pms/checkout/feishu-message',
+        AI_PMS_CALLBACK_TOKEN: 'callback-token-1'
+      })
+    ).toThrow(/ADAPTER_FEISHU_ALLOWED_CHAT_IDS/);
+  });
+
+  it('requires callback auth token when PMS checkout forwarding URLs are configured', () => {
     expect(() =>
       loadConfig({
         FEISHU_APP_ID: 'cli_test',
@@ -153,9 +194,17 @@ describe('loadConfig', () => {
         ADAPTER_FEISHU_PMS_CHECKOUT_CALLBACK_URL: 'http://127.0.0.1:8792/pms/checkout/callback'
       })
     ).toThrow(/AI_PMS_CALLBACK_TOKEN/);
+
+    expect(() =>
+      loadConfig({
+        FEISHU_APP_ID: 'cli_test',
+        FEISHU_APP_SECRET: 'secret_test',
+        ADAPTER_FEISHU_PMS_CHECKOUT_INBOUND_TURN_URL: 'http://127.0.0.1:8792/pms/checkout/feishu-message'
+      })
+    ).toThrow(/AI_PMS_CALLBACK_TOKEN/);
   });
 
-  it('rejects invalid PMS checkout callback URL', () => {
+  it('rejects invalid PMS checkout forwarding URLs', () => {
     expect(() =>
       loadConfig({
         FEISHU_APP_ID: 'cli_test',
@@ -164,6 +213,15 @@ describe('loadConfig', () => {
         AI_PMS_CALLBACK_TOKEN: 'callback-token-1'
       })
     ).toThrow(/ADAPTER_FEISHU_PMS_CHECKOUT_CALLBACK_URL/);
+
+    expect(() =>
+      loadConfig({
+        FEISHU_APP_ID: 'cli_test',
+        FEISHU_APP_SECRET: 'secret_test',
+        ADAPTER_FEISHU_PMS_CHECKOUT_INBOUND_TURN_URL: 'not-a-url',
+        AI_PMS_CALLBACK_TOKEN: 'callback-token-1'
+      })
+    ).toThrow(/ADAPTER_FEISHU_PMS_CHECKOUT_INBOUND_TURN_URL/);
   });
 
   it('rejects non-positive TTL values', () => {

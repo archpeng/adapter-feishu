@@ -116,6 +116,64 @@ describe('dispatchCardActionRequest', () => {
     expect(pendingStore.get('warning-agent', 'pending-1')).toBeUndefined();
   });
 
+  it('trusts long-connection card-action events without requiring the HTTP verification token', async () => {
+    const handleCallback = vi.fn().mockResolvedValue({
+      providerKey: 'warning-agent',
+      status: 'accepted',
+      message: 'callback acknowledged'
+    });
+    const registry = createProviderRegistry({
+      allowedProviderKeys: ['warning-agent'],
+      defaultProviderKey: 'warning-agent'
+    });
+    registerProvider(registry, createCallbackProvider(handleCallback));
+    const router = createProviderRouter(registry);
+    const pendingStore = createPendingStore({
+      ttlMs: 1_000,
+      now: () => 1_000,
+      idGenerator: () => 'pending-1'
+    });
+    pendingStore.put({
+      providerKey: 'warning-agent',
+      actionId: 'approve',
+      payload: { reportId: 'report-9' }
+    });
+
+    const response = await dispatchCardActionRequest(
+      {
+        method: 'POST',
+        pathname: '/webhook/card',
+        trustedSource: 'long_connection',
+        rawBody: JSON.stringify({
+          action: {
+            value: {
+              actionId: 'approve',
+              pendingId: 'pending-1',
+              providerKey: 'warning-agent'
+            }
+          }
+        })
+      },
+      {
+        providerRouter: router,
+        pendingStore,
+        replySink: {
+          sendNotification: vi.fn().mockResolvedValue({
+            providerKey: 'warning-agent',
+            deliveryId: 'delivery-1',
+            channel: 'feishu',
+            status: 'delivered'
+          })
+        },
+        verificationToken: 'http-token-required',
+        now: () => '2026-04-20T00:00:00.000Z'
+      }
+    );
+
+    expect(response.statusCode).toBe(200);
+    expect(handleCallback).toHaveBeenCalledOnce();
+  });
+
   it('accepts the Feishu SDK card-action request shape on the real card webhook path', async () => {
     const handleCallback = vi.fn().mockResolvedValue({
       providerKey: 'warning-agent',

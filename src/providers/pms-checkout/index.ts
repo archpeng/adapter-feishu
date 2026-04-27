@@ -43,6 +43,23 @@ export interface PmsCheckoutHttpCallbackForwarderOptions {
   fetchImpl?: typeof fetch;
 }
 
+export interface PmsCheckoutInboundTurnForwarderOptions {
+  url: string;
+  token: string;
+  headerName?: typeof PMS_CHECKOUT_CALLBACK_AUTH_HEADER;
+  timeoutMs?: number;
+  fetchImpl?: typeof fetch;
+}
+
+export interface PmsCheckoutInboundTurnForwardResult {
+  statusCode: number;
+  body: JsonRecord;
+}
+
+export interface PmsCheckoutInboundTurnForwarder {
+  forwardTurn(turn: InboundTurn): Promise<PmsCheckoutInboundTurnForwardResult>;
+}
+
 export function createPmsCheckoutProvider(
   options: PmsCheckoutProviderOptions = {}
 ): ProviderDefinition<PmsCheckoutProjectionEnvelope> {
@@ -149,6 +166,48 @@ export function createPmsCheckoutHttpCallbackForwarder(
         const body = await parseResponseBody(response);
         if (!response.ok) {
           throw new Error(`pms_checkout_callback_forward_failed:${response.status}`);
+        }
+        return {
+          statusCode: response.status,
+          body
+        };
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+  };
+}
+
+export function createPmsCheckoutHttpInboundTurnForwarder(
+  options: PmsCheckoutInboundTurnForwarderOptions
+): PmsCheckoutInboundTurnForwarder {
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const headerName = options.headerName ?? PMS_CHECKOUT_CALLBACK_AUTH_HEADER;
+  const timeoutMs = options.timeoutMs ?? 5_000;
+
+  return {
+    async forwardTurn(turn) {
+      const abortController = new AbortController();
+      const timeout = setTimeout(() => abortController.abort(), timeoutMs);
+      try {
+        const response = await fetchImpl(options.url, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            [headerName]: options.token
+          },
+          body: JSON.stringify({
+            name: 'adapter-feishu-inbound-turn',
+            version: 'v1',
+            source: 'adapter-feishu',
+            providerKey: PMS_CHECKOUT_PROVIDER_KEY,
+            turn
+          }),
+          signal: abortController.signal
+        });
+        const body = await parseResponseBody(response);
+        if (!response.ok) {
+          throw new Error(`pms_checkout_inbound_turn_forward_failed:${response.status}`);
         }
         return {
           statusCode: response.status,

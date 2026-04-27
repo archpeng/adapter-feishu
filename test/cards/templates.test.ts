@@ -40,5 +40,47 @@ describe('renderInteractiveCard', () => {
     expect(body).toContain('prod-cn-1');
     expect(body).toContain('Open report');
     expect(body).toContain('open-report');
+    const actionElement = card.elements.find((element) => element.tag === 'action');
+    const button = actionElement?.actions?.[0];
+    expect(button.value).toEqual({ actionId: 'open-report', reportId: 'report-1' });
+    expect(button.behaviors).toEqual([
+      {
+        type: 'callback',
+        value: { actionId: 'open-report', reportId: 'report-1' }
+      }
+    ]);
+  });
+
+  it('preserves legacy button value while adding explicit callback behavior', () => {
+    const card = renderInteractiveCard({
+      title: 'PMS checkout dry-run',
+      summary: 'Confirm requires typed card action.',
+      actions: [
+        {
+          actionId: 'pms.checkout.confirm',
+          label: 'Confirm checkout',
+          style: 'primary',
+          payload: { pendingId: 'pending-1', confirmMode: 'confirm' }
+        }
+      ]
+    });
+
+    const actionElement = card.elements.find((element) => element.tag === 'action');
+    const button = actionElement?.actions?.[0];
+    expect(button.value).toEqual({
+      actionId: 'pms.checkout.confirm',
+      pendingId: 'pending-1',
+      confirmMode: 'confirm'
+    });
+    expect(button.behaviors).toEqual([
+      {
+        type: 'callback',
+        value: {
+          actionId: 'pms.checkout.confirm',
+          pendingId: 'pending-1',
+          confirmMode: 'confirm'
+        }
+      }
+    ]);
   });
 });

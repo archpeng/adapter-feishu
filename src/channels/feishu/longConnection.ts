@@ -31,6 +31,7 @@ export interface LongConnectionCardActionRequest {
   method: 'POST';
   pathname: '/webhook/card';
   rawBody: string;
+  trustedSource: 'long_connection';
 }
 
 export type LongConnectionCardActionHandler = (request: LongConnectionCardActionRequest) => Promise<Record<string, unknown>>;
@@ -64,7 +65,8 @@ export function createLongConnectionIngress(
     handlers['card.action.trigger'] = async (data) => options.handleCardAction?.({
       method: 'POST',
       pathname: '/webhook/card',
-      rawBody: JSON.stringify(data)
+      rawBody: JSON.stringify(data),
+      trustedSource: 'long_connection'
     });
   }
 
@@ -98,9 +100,14 @@ const defaultDeps: LongConnectionDeps = {
 };
 
 function toRawMessageEvent(data: Record<string, unknown>): FeishuEventEnvelope {
-  const message = isRecord(data.message) ? data.message : {};
+  const event = isRecord(data.event) ? data.event : data;
+  const header = isRecord(data.header) ? data.header : {};
+  const message = isRecord(event.message) ? event.message : {};
   const eventId =
-    getString(message, 'message_id') ?? getString(message, 'root_id') ?? `lc-${Date.now().toString(36)}`;
+    getString(header, 'event_id') ??
+    getString(message, 'message_id') ??
+    getString(message, 'root_id') ??
+    `lc-${Date.now().toString(36)}`;
 
   return {
     schema: '2.0',
@@ -108,7 +115,7 @@ function toRawMessageEvent(data: Record<string, unknown>): FeishuEventEnvelope {
       event_id: eventId,
       event_type: 'im.message.receive_v1'
     },
-    event: data as FeishuEventEnvelope['event']
+    event: event as FeishuEventEnvelope['event']
   };
 }
 

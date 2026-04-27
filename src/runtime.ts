@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { createBitableClient, type BitableClient } from './channels/feishu/bitableClient.js';
 import { createFeishuClient, type FeishuClient } from './channels/feishu/client.js';
@@ -12,7 +13,7 @@ import { createReplySink, type ReplySink } from './channels/feishu/replySink.js'
 import { type DispatchRequest, dispatchWebhookRequest } from './channels/feishu/webhook.js';
 import { readRequestBody, respondJson } from './channels/feishu/webhookSecurity.js';
 import type { AdapterConfig } from './config.js';
-import { type JsonRecord } from './core/contracts.js';
+import { type InboundTurn, type JsonRecord } from './core/contracts.js';
 import { loadManagedFormRegistry, type ManagedFormRegistry } from './forms/registry.js';
 import {
   createProviderRegistry,
@@ -23,6 +24,7 @@ import { createProviderRouter, type ProviderRouter } from './providers/router.js
 import {
   PMS_CHECKOUT_PROVIDER_KEY,
   createPmsCheckoutHttpCallbackForwarder,
+  createPmsCheckoutHttpInboundTurnForwarder,
   createPmsCheckoutProvider
 } from './providers/pms-checkout/index.js';
 import {
@@ -99,6 +101,7 @@ export function createAdapterRuntime(
   deps: AdapterRuntimeDeps = defaultDeps
 ): AdapterRuntime {
   const logInboundTurns = process.env.ADAPTER_FEISHU_LOG_INBOUND_TURNS === 'true';
+  const logInboundSummary = process.env.ADAPTER_FEISHU_LOG_INBOUND_SUMMARY === 'true';
   const client = deps.createClient({
     appId: config.feishu.appId,
     appSecret: config.feishu.appSecret
@@ -125,6 +128,14 @@ export function createAdapterRuntime(
         token: pmsCheckoutConfig.callbackToken,
         headerName: pmsCheckoutConfig.callbackTokenHeader,
         timeoutMs: pmsCheckoutConfig.callbackTimeoutMs
+      })
+    : undefined;
+  const pmsCheckoutInboundTurnForwarder = pmsCheckoutConfig?.inboundTurnUrl && pmsCheckoutConfig.callbackToken
+    ? createPmsCheckoutHttpInboundTurnForwarder({
+        url: pmsCheckoutConfig.inboundTurnUrl,
+        token: pmsCheckoutConfig.callbackToken,
+        headerName: pmsCheckoutConfig.callbackTokenHeader,
+        timeoutMs: pmsCheckoutConfig.inboundTurnTimeoutMs
       })
     : undefined;
 
@@ -175,6 +186,38 @@ export function createAdapterRuntime(
     const resolution = providerRouter.resolve(turn);
     const provider = resolution.provider.definition;
 
+    if (logInboundSummary) {
+      logSafeInboundSummary('adapter_feishu_inbound_turn_summary', turn, resolution.providerKey);
+    }
+
+    if (turn.intent === 'command' && resolution.providerKey === PMS_CHECKOUT_PROVIDER_KEY && pmsCheckoutInboundTurnForwarder) {
+      const authorization = authorizePmsCheckoutTurn(turn, pmsCheckoutConfig);
+      if (!authorization.ok) {
+        if (logInboundSummary) {
+          console.log(JSON.stringify({
+            event: 'adapter_feishu_inbound_turn_rejected',
+            providerKey: resolution.providerKey,
+            turnHash: hashRedacted(turn.turnId),
+            reason: authorization.reason
+          }));
+        }
+        return;
+      }
+
+      const forwardResult = await pmsCheckoutInboundTurnForwarder.forwardTurn(turn);
+      if (logInboundSummary) {
+        console.log(JSON.stringify({
+          event: 'adapter_feishu_inbound_turn_forwarded',
+          providerKey: resolution.providerKey,
+          turnHash: hashRedacted(turn.turnId),
+          statusCode: forwardResult.statusCode,
+          bodyStatus: typeof forwardResult.body.status === 'string' ? forwardResult.body.status : undefined,
+          bodyOk: typeof forwardResult.body.ok === 'boolean' ? forwardResult.body.ok : undefined
+        }));
+      }
+      return;
+    }
+
     if (turn.intent === 'callback' && provider.handleCallback) {
       await provider.handleCallback(turn, {
         replySink,
@@ -186,14 +229,29 @@ export function createAdapterRuntime(
     }
   };
 
-  const handleCardActionRequest = (requestBody: CardActionRequest) => dispatchCardActionRequest(requestBody, {
-    providerRouter,
-    pendingStore,
-    replySink,
-    now,
-    callbackForwarder: pmsCheckoutCallbackForwarder,
-    verificationToken: config.feishu.verificationToken
-  });
+  const handleCardActionRequest = async (requestBody: CardActionRequest) => {
+    if (logInboundSummary) {
+      console.log(JSON.stringify({ event: 'adapter_feishu_card_action_received' }));
+    }
+    const response = await dispatchCardActionRequest(requestBody, {
+      providerRouter,
+      pendingStore,
+      replySink,
+      now,
+      callbackForwarder: pmsCheckoutCallbackForwarder,
+      verificationToken: config.feishu.verificationToken
+    });
+    if (logInboundSummary) {
+      console.log(JSON.stringify({
+        event: 'adapter_feishu_card_action_dispatched',
+        statusCode: response.statusCode,
+        message: typeof response.body.message === 'string' ? response.body.message : undefined,
+        providerKey: typeof response.body.providerKey === 'string' ? response.body.providerKey : undefined,
+        status: typeof response.body.status === 'string' ? response.body.status : undefined
+      }));
+    }
+    return response;
+  };
 
   const longConnectionIngress = deps.createLongConnectionIngress(
     {
@@ -351,4 +409,54 @@ function closeServer(server: Server): Promise<void> {
 function stringField(payload: JsonRecord, key: string): string | undefined {
   const value = payload[key];
   return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function authorizePmsCheckoutTurn(
+  turn: InboundTurn,
+  policy: AdapterConfig['pmsCheckout'] | undefined
+): { ok: true } | { ok: false; reason: string } {
+  const allowedChatIds = policy?.allowedChatIds ?? [];
+  if (allowedChatIds.length > 0 && (!turn.target.chatId || !allowedChatIds.includes(turn.target.chatId))) {
+    return { ok: false, reason: 'chat_not_allowed' };
+  }
+
+  const allowedOpenIds = policy?.allowedOpenIds ?? [];
+  const allowedUserIds = policy?.allowedUserIds ?? [];
+  const allowedUnionIds = policy?.allowedUnionIds ?? [];
+  const hasUserPolicy = allowedOpenIds.length > 0 || allowedUserIds.length > 0 || allowedUnionIds.length > 0;
+  if (!hasUserPolicy) {
+    return { ok: true };
+  }
+
+  if (turn.actor?.openId && allowedOpenIds.includes(turn.actor.openId)) {
+    return { ok: true };
+  }
+  if (turn.actor?.userId && allowedUserIds.includes(turn.actor.userId)) {
+    return { ok: true };
+  }
+  if (turn.actor?.tenantKey && allowedUnionIds.includes(turn.actor.tenantKey)) {
+    return { ok: true };
+  }
+
+  return { ok: false, reason: 'actor_not_allowed' };
+}
+
+function logSafeInboundSummary(event: string, turn: InboundTurn, providerKey: string): void {
+  const text = typeof turn.text === 'string' ? turn.text : '';
+  console.log(JSON.stringify({
+    event,
+    providerKey,
+    turnHash: hashRedacted(turn.turnId),
+    intent: turn.intent,
+    messageType: typeof turn.metadata?.messageType === 'string' ? turn.metadata.messageType : undefined,
+    eventType: typeof turn.metadata?.eventType === 'string' ? turn.metadata.eventType : undefined,
+    hasText: text.trim().length > 0,
+    textHash: text.trim() ? hashRedacted(text) : undefined,
+    hasChatTarget: Boolean(turn.target.chatId),
+    hasActor: Boolean(turn.actor?.openId || turn.actor?.userId || turn.actor?.tenantKey)
+  }));
+}
+
+function hashRedacted(value: string): string {
+  return createHash('sha256').update(value).digest('hex').slice(0, 16);
 }
