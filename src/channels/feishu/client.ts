@@ -61,6 +61,7 @@ export function createFeishuClient(config: FeishuClientConfig): FeishuClient {
   ): Promise<FeishuClientSendResult> {
     const accessToken = await getAccessToken();
     const resolvedTarget = resolveFeishuMessageTarget(target);
+    logSafeMessageSend('adapter_feishu_message_send_attempt', target, resolvedTarget.receiveIdType, { msgType });
     const response = await fetchImpl(
       `${baseUrl}/open-apis/im/v1/messages?receive_id_type=${resolvedTarget.receiveIdType}`,
       {
@@ -80,6 +81,11 @@ export function createFeishuClient(config: FeishuClientConfig): FeishuClient {
     const payload = await parseJsonObject(response);
 
     if (!response.ok || payload.code !== 0) {
+      logSafeMessageSend('adapter_feishu_message_send_failed', target, resolvedTarget.receiveIdType, {
+        msgType,
+        statusCode: response.status,
+        feishuCode: numberValue(payload.code)
+      });
       throw new Error(`Failed to send Feishu message: ${stringValue(payload.msg) ?? response.statusText}`);
     }
 
@@ -113,4 +119,21 @@ function stringValue(value: unknown): string | undefined {
 
 function numberValue(value: unknown): number | undefined {
   return typeof value === 'number' ? value : undefined;
+}
+
+function logSafeMessageSend(
+  event: string,
+  target: DeliveryTarget,
+  receiveIdType: string,
+  details: Record<string, unknown>
+): void {
+  console.log(JSON.stringify({
+    event,
+    receiveIdType,
+    hasChatId: Boolean(target.chatId),
+    hasOpenId: Boolean(target.openId),
+    hasUserId: Boolean(target.userId),
+    hasUnionId: Boolean(target.unionId),
+    ...details
+  }));
 }
