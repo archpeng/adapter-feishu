@@ -13,7 +13,8 @@ import { createReplySink, type ReplySink } from './channels/feishu/replySink.js'
 import { type DispatchRequest, dispatchWebhookRequest } from './channels/feishu/webhook.js';
 import { readRequestBody, respondJson } from './channels/feishu/webhookSecurity.js';
 import type { AdapterConfig } from './config.js';
-import { type InboundTurn, type JsonRecord } from './core/contracts.js';
+import { createConversationHttpTurnForwarder } from './conversation/forwarder.js';
+import { type InboundTurn, type JsonRecord, type ProviderKey } from './core/contracts.js';
 import { loadManagedFormRegistry, type ManagedFormRegistry } from './forms/registry.js';
 import {
   createProviderRegistry,
@@ -138,6 +139,15 @@ export function createAdapterRuntime(
         timeoutMs: pmsCheckoutConfig.inboundTurnTimeoutMs
       })
     : undefined;
+  const conversationConfig = config.conversation;
+  const conversationTurnForwarder = conversationConfig.turnUrl && conversationConfig.inboundAuthToken
+    ? createConversationHttpTurnForwarder({
+        url: conversationConfig.turnUrl,
+        token: conversationConfig.inboundAuthToken,
+        headerName: conversationConfig.inboundAuthHeader,
+        timeoutMs: conversationConfig.turnTimeoutMs
+      })
+    : undefined;
 
   if (config.providers.keys.includes(PMS_CHECKOUT_PROVIDER_KEY)) {
     registerProvider(providerRegistry, createPmsCheckoutProvider({
@@ -190,16 +200,14 @@ export function createAdapterRuntime(
       logSafeInboundSummary('adapter_feishu_inbound_turn_summary', turn, resolution.providerKey);
     }
 
-    if (turn.intent === 'command' && resolution.providerKey === PMS_CHECKOUT_PROVIDER_KEY && pmsCheckoutInboundTurnForwarder) {
-      const authorization = authorizePmsCheckoutTurn(turn, pmsCheckoutConfig);
+    if (turn.intent === 'command' && shouldUsePmsCheckoutDirectRoute(turn, resolution.providerKey, Boolean(conversationTurnForwarder)) && pmsCheckoutInboundTurnForwarder) {
+      const authorization = authorizeAdapterOwnedTurn(turn, pmsCheckoutConfig);
       if (!authorization.ok) {
         if (logInboundSummary) {
-          console.log(JSON.stringify({
-            event: 'adapter_feishu_inbound_turn_rejected',
-            providerKey: resolution.providerKey,
-            turnHash: hashRedacted(turn.turnId),
-            reason: authorization.reason
-          }));
+          logSafeForwardingDecision('adapter_feishu_inbound_turn_rejected', turn, resolution.providerKey, {
+            reason: authorization.reason,
+            route: 'pms-checkout-direct'
+          });
         }
         return;
       }
@@ -209,11 +217,50 @@ export function createAdapterRuntime(
         console.log(JSON.stringify({
           event: 'adapter_feishu_inbound_turn_forwarded',
           providerKey: resolution.providerKey,
+          route: 'pms-checkout-direct',
           turnHash: hashRedacted(turn.turnId),
           statusCode: forwardResult.statusCode,
           bodyStatus: typeof forwardResult.body.status === 'string' ? forwardResult.body.status : undefined,
           bodyOk: typeof forwardResult.body.ok === 'boolean' ? forwardResult.body.ok : undefined
         }));
+      }
+      return;
+    }
+
+    if (turn.intent === 'command' && conversationTurnForwarder) {
+      const authorization = authorizeAdapterOwnedTurn(turn, conversationConfig);
+      if (!authorization.ok) {
+        if (logInboundSummary) {
+          logSafeForwardingDecision('adapter_feishu_conversation_turn_rejected', turn, 'ai-conversation', {
+            reason: authorization.reason,
+            route: 'conversation'
+          });
+        }
+        return;
+      }
+
+      try {
+        const forwardResult = await conversationTurnForwarder.forwardTurn(turn);
+        if (logInboundSummary) {
+          console.log(JSON.stringify({
+            event: 'adapter_feishu_conversation_turn_forwarded',
+            providerKey: 'ai-conversation',
+            route: 'conversation',
+            turnHash: hashRedacted(turn.turnId),
+            statusCode: forwardResult.statusCode,
+            bodyStatus: typeof forwardResult.body.status === 'string' ? forwardResult.body.status : undefined,
+            bodyOk: typeof forwardResult.body.ok === 'boolean' ? forwardResult.body.ok : undefined,
+            intent: typeof forwardResult.body.intent === 'string' ? forwardResult.body.intent : undefined
+          }));
+        }
+      } catch (error) {
+        if (logInboundSummary) {
+          logSafeForwardingDecision('adapter_feishu_conversation_turn_forward_failed', turn, 'ai-conversation', {
+            route: 'conversation',
+            errorName: error instanceof Error ? error.name : 'UnknownError',
+            errorMessageHash: hashRedacted(error instanceof Error ? error.message : String(error))
+          });
+        }
       }
       return;
     }
@@ -411,9 +458,41 @@ function stringField(payload: JsonRecord, key: string): string | undefined {
   return typeof value === 'string' && value.trim() ? value : undefined;
 }
 
-function authorizePmsCheckoutTurn(
+interface AdapterOwnedTurnAuthorizationPolicy {
+  allowedChatIds: string[];
+  allowedOpenIds: string[];
+  allowedUserIds: string[];
+  allowedUnionIds: string[];
+}
+
+function shouldUsePmsCheckoutDirectRoute(
   turn: InboundTurn,
-  policy: AdapterConfig['pmsCheckout'] | undefined
+  resolvedProviderKey: ProviderKey,
+  conversationForwardingConfigured: boolean
+): boolean {
+  if (resolvedProviderKey !== PMS_CHECKOUT_PROVIDER_KEY) {
+    return false;
+  }
+  if (turn.providerKey === PMS_CHECKOUT_PROVIDER_KEY) {
+    return true;
+  }
+  if (!conversationForwardingConfigured) {
+    return true;
+  }
+  return isDeterministicPmsCheckoutText(turn.text);
+}
+
+function isDeterministicPmsCheckoutText(text: string | undefined): boolean {
+  const normalized = text?.trim().toLowerCase() ?? '';
+  if (!normalized) {
+    return false;
+  }
+  return /\b(checkout|check-out|check\s+out)\b/.test(normalized) || normalized.includes('退房');
+}
+
+function authorizeAdapterOwnedTurn(
+  turn: InboundTurn,
+  policy: AdapterOwnedTurnAuthorizationPolicy | undefined
 ): { ok: true } | { ok: false; reason: string } {
   const allowedChatIds = policy?.allowedChatIds ?? [];
   if (allowedChatIds.length > 0 && (!turn.target.chatId || !allowedChatIds.includes(turn.target.chatId))) {
@@ -439,6 +518,20 @@ function authorizePmsCheckoutTurn(
   }
 
   return { ok: false, reason: 'actor_not_allowed' };
+}
+
+function logSafeForwardingDecision(
+  event: string,
+  turn: InboundTurn,
+  providerKey: string,
+  details: JsonRecord
+): void {
+  console.log(JSON.stringify({
+    event,
+    providerKey,
+    turnHash: hashRedacted(turn.turnId),
+    ...details
+  }));
 }
 
 function logSafeInboundSummary(event: string, turn: InboundTurn, providerKey: string): void {

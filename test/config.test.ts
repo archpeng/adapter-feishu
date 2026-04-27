@@ -52,6 +52,17 @@ describe('loadConfig', () => {
       allowedUserIds: [],
       allowedUnionIds: []
     });
+    expect(config.conversation).toEqual({
+      turnUrl: undefined,
+      inboundAuthToken: undefined,
+      inboundAuthHeader: 'X-AI-CONVERSATION-TOKEN',
+      inboundAuthEnvName: 'AI_CONVERSATION_INBOUND_AUTH_TOKEN',
+      turnTimeoutMs: 5000,
+      allowedChatIds: [],
+      allowedOpenIds: [],
+      allowedUserIds: [],
+      allowedUnionIds: []
+    });
   });
 
   it('supports long_connection and explicit provider and form webhook registration', () => {
@@ -77,11 +88,14 @@ describe('loadConfig', () => {
       ADAPTER_FEISHU_PMS_CHECKOUT_CALLBACK_TIMEOUT_MS: '2500',
       ADAPTER_FEISHU_PMS_CHECKOUT_INBOUND_TURN_URL: 'http://127.0.0.1:8792/pms/checkout/feishu-message',
       ADAPTER_FEISHU_PMS_CHECKOUT_INBOUND_TURN_TIMEOUT_MS: '3000',
+      ADAPTER_FEISHU_CONVERSATION_TURN_URL: 'http://127.0.0.1:8791/conversation/feishu-turn',
+      ADAPTER_FEISHU_CONVERSATION_TURN_TIMEOUT_MS: '3500',
       ADAPTER_FEISHU_ALLOWED_CHAT_IDS: 'oc-chat-1, oc-chat-2',
       ADAPTER_FEISHU_ALLOWED_OPEN_IDS: 'ou-user-1',
       ADAPTER_FEISHU_ALLOWED_USER_IDS: 'user-1',
       ADAPTER_FEISHU_ALLOWED_UNION_IDS: 'union-1',
-      AI_PMS_CALLBACK_TOKEN: 'callback-token-1'
+      AI_PMS_CALLBACK_TOKEN: 'callback-token-1',
+      AI_CONVERSATION_INBOUND_AUTH_TOKEN: 'conversation-token-1'
     });
 
     expect(config.feishu.ingressMode).toBe('long_connection');
@@ -115,6 +129,17 @@ describe('loadConfig', () => {
       callbackTokenEnvName: 'AI_PMS_CALLBACK_TOKEN',
       callbackTimeoutMs: 2500,
       inboundTurnTimeoutMs: 3000,
+      allowedChatIds: ['oc-chat-1', 'oc-chat-2'],
+      allowedOpenIds: ['ou-user-1'],
+      allowedUserIds: ['user-1'],
+      allowedUnionIds: ['union-1']
+    });
+    expect(config.conversation).toEqual({
+      turnUrl: 'http://127.0.0.1:8791/conversation/feishu-turn',
+      inboundAuthToken: 'conversation-token-1',
+      inboundAuthHeader: 'X-AI-CONVERSATION-TOKEN',
+      inboundAuthEnvName: 'AI_CONVERSATION_INBOUND_AUTH_TOKEN',
+      turnTimeoutMs: 3500,
       allowedChatIds: ['oc-chat-1', 'oc-chat-2'],
       allowedOpenIds: ['ou-user-1'],
       allowedUserIds: ['user-1'],
@@ -186,6 +211,26 @@ describe('loadConfig', () => {
     ).toThrow(/ADAPTER_FEISHU_ALLOWED_CHAT_IDS/);
   });
 
+  it('requires conversation auth token and chat allowlist when conversation forwarding is configured', () => {
+    expect(() =>
+      loadConfig({
+        FEISHU_APP_ID: 'cli_test',
+        FEISHU_APP_SECRET: 'secret_test',
+        ADAPTER_FEISHU_CONVERSATION_TURN_URL: 'http://127.0.0.1:8791/conversation/feishu-turn',
+        ADAPTER_FEISHU_ALLOWED_CHAT_IDS: 'oc-chat-1'
+      })
+    ).toThrow(/AI_CONVERSATION_INBOUND_AUTH_TOKEN/);
+
+    expect(() =>
+      loadConfig({
+        FEISHU_APP_ID: 'cli_test',
+        FEISHU_APP_SECRET: 'secret_test',
+        ADAPTER_FEISHU_CONVERSATION_TURN_URL: 'http://127.0.0.1:8791/conversation/feishu-turn',
+        AI_CONVERSATION_INBOUND_AUTH_TOKEN: 'conversation-token-1'
+      })
+    ).toThrow(/ADAPTER_FEISHU_ALLOWED_CHAT_IDS/);
+  });
+
   it('requires callback auth token when PMS checkout forwarding URLs are configured', () => {
     expect(() =>
       loadConfig({
@@ -222,6 +267,16 @@ describe('loadConfig', () => {
         AI_PMS_CALLBACK_TOKEN: 'callback-token-1'
       })
     ).toThrow(/ADAPTER_FEISHU_PMS_CHECKOUT_INBOUND_TURN_URL/);
+
+    expect(() =>
+      loadConfig({
+        FEISHU_APP_ID: 'cli_test',
+        FEISHU_APP_SECRET: 'secret_test',
+        ADAPTER_FEISHU_CONVERSATION_TURN_URL: 'not-a-url',
+        AI_CONVERSATION_INBOUND_AUTH_TOKEN: 'conversation-token-1',
+        ADAPTER_FEISHU_ALLOWED_CHAT_IDS: 'oc-chat-1'
+      })
+    ).toThrow(/ADAPTER_FEISHU_CONVERSATION_TURN_URL/);
   });
 
   it('rejects non-positive TTL values', () => {

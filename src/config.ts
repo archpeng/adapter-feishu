@@ -1,4 +1,5 @@
 import type { FeishuUserIdType } from './channels/feishu/bitableClient.js';
+import { AI_CONVERSATION_AUTH_ENV_NAME, AI_CONVERSATION_AUTH_HEADER } from './conversation/forwarder.js';
 
 export type IngressMode = 'webhook' | 'long_connection';
 
@@ -48,6 +49,17 @@ export interface AdapterConfig {
     callbackTokenEnvName: 'AI_PMS_CALLBACK_TOKEN';
     callbackTimeoutMs: number;
     inboundTurnTimeoutMs: number;
+    allowedChatIds: string[];
+    allowedOpenIds: string[];
+    allowedUserIds: string[];
+    allowedUnionIds: string[];
+  };
+  conversation: {
+    turnUrl?: string;
+    inboundAuthToken?: string;
+    inboundAuthHeader: typeof AI_CONVERSATION_AUTH_HEADER;
+    inboundAuthEnvName: typeof AI_CONVERSATION_AUTH_ENV_NAME;
+    turnTimeoutMs: number;
     allowedChatIds: string[];
     allowedOpenIds: string[];
     allowedUserIds: string[];
@@ -182,11 +194,16 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   const pmsCheckoutCallbackUrl = parseOptionalUrl(env, 'ADAPTER_FEISHU_PMS_CHECKOUT_CALLBACK_URL');
   const pmsCheckoutInboundTurnUrl = parseOptionalUrl(env, 'ADAPTER_FEISHU_PMS_CHECKOUT_INBOUND_TURN_URL');
   const pmsCheckoutCallbackToken = env.AI_PMS_CALLBACK_TOKEN?.trim() || undefined;
-  const pmsCheckoutAllowedChatIds = parseCsv(
+  const conversationTurnUrl = parseOptionalUrl(env, 'ADAPTER_FEISHU_CONVERSATION_TURN_URL');
+  const conversationInboundAuthToken = env.AI_CONVERSATION_INBOUND_AUTH_TOKEN?.trim() || undefined;
+  const adapterAllowedChatIds = parseCsv(
     env,
     'ADAPTER_FEISHU_ALLOWED_CHAT_IDS',
     env.FEISHU_HOME_CHANNEL?.trim() ? [env.FEISHU_HOME_CHANNEL.trim()] : []
   );
+  const adapterAllowedOpenIds = parseCsv(env, 'ADAPTER_FEISHU_ALLOWED_OPEN_IDS', []);
+  const adapterAllowedUserIds = parseCsv(env, 'ADAPTER_FEISHU_ALLOWED_USER_IDS', []);
+  const adapterAllowedUnionIds = parseCsv(env, 'ADAPTER_FEISHU_ALLOWED_UNION_IDS', []);
 
   if (defaultProvider && !providerKeys.includes(defaultProvider)) {
     throw new Error('ADAPTER_FEISHU_DEFAULT_PROVIDER must be included in ADAPTER_FEISHU_PROVIDER_KEYS');
@@ -198,9 +215,19 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     );
   }
 
-  if (pmsCheckoutInboundTurnUrl && pmsCheckoutAllowedChatIds.length === 0) {
+  if (pmsCheckoutInboundTurnUrl && adapterAllowedChatIds.length === 0) {
     throw new Error(
       'ADAPTER_FEISHU_ALLOWED_CHAT_IDS or FEISHU_HOME_CHANNEL must be set when ADAPTER_FEISHU_PMS_CHECKOUT_INBOUND_TURN_URL is set'
+    );
+  }
+
+  if (conversationTurnUrl && !conversationInboundAuthToken) {
+    throw new Error('AI_CONVERSATION_INBOUND_AUTH_TOKEN must be set when ADAPTER_FEISHU_CONVERSATION_TURN_URL is set');
+  }
+
+  if (conversationTurnUrl && adapterAllowedChatIds.length === 0) {
+    throw new Error(
+      'ADAPTER_FEISHU_ALLOWED_CHAT_IDS or FEISHU_HOME_CHANNEL must be set when ADAPTER_FEISHU_CONVERSATION_TURN_URL is set'
     );
   }
 
@@ -244,10 +271,21 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       callbackTokenEnvName: 'AI_PMS_CALLBACK_TOKEN',
       callbackTimeoutMs: parsePositiveInteger(env, 'ADAPTER_FEISHU_PMS_CHECKOUT_CALLBACK_TIMEOUT_MS', 5_000),
       inboundTurnTimeoutMs: parsePositiveInteger(env, 'ADAPTER_FEISHU_PMS_CHECKOUT_INBOUND_TURN_TIMEOUT_MS', 5_000),
-      allowedChatIds: pmsCheckoutAllowedChatIds,
-      allowedOpenIds: parseCsv(env, 'ADAPTER_FEISHU_ALLOWED_OPEN_IDS', []),
-      allowedUserIds: parseCsv(env, 'ADAPTER_FEISHU_ALLOWED_USER_IDS', []),
-      allowedUnionIds: parseCsv(env, 'ADAPTER_FEISHU_ALLOWED_UNION_IDS', [])
+      allowedChatIds: adapterAllowedChatIds,
+      allowedOpenIds: adapterAllowedOpenIds,
+      allowedUserIds: adapterAllowedUserIds,
+      allowedUnionIds: adapterAllowedUnionIds
+    },
+    conversation: {
+      turnUrl: conversationTurnUrl,
+      inboundAuthToken: conversationInboundAuthToken,
+      inboundAuthHeader: AI_CONVERSATION_AUTH_HEADER,
+      inboundAuthEnvName: AI_CONVERSATION_AUTH_ENV_NAME,
+      turnTimeoutMs: parsePositiveInteger(env, 'ADAPTER_FEISHU_CONVERSATION_TURN_TIMEOUT_MS', 5_000),
+      allowedChatIds: adapterAllowedChatIds,
+      allowedOpenIds: adapterAllowedOpenIds,
+      allowedUserIds: adapterAllowedUserIds,
+      allowedUnionIds: adapterAllowedUnionIds
     }
   };
 }

@@ -58,6 +58,17 @@ function createConfig(
       allowedOpenIds: [],
       allowedUserIds: [],
       allowedUnionIds: []
+    },
+    conversation: {
+      turnUrl: undefined,
+      inboundAuthToken: undefined,
+      inboundAuthHeader: 'X-AI-CONVERSATION-TOKEN',
+      inboundAuthEnvName: 'AI_CONVERSATION_INBOUND_AUTH_TOKEN',
+      turnTimeoutMs: 5000,
+      allowedChatIds: [],
+      allowedOpenIds: [],
+      allowedUserIds: [],
+      allowedUnionIds: []
     }
   };
 }
@@ -261,7 +272,7 @@ describe('createAdapterRuntime', () => {
       callbackTokenEnvName: 'AI_PMS_CALLBACK_TOKEN',
       callbackTimeoutMs: 5000,
       inboundTurnTimeoutMs: 5000,
-      allowedChatIds: ['oc_test'],
+      allowedChatIds: ['fixture-chat-alpha'],
       allowedOpenIds: [],
       allowedUserIds: [],
       allowedUnionIds: []
@@ -297,8 +308,8 @@ describe('createAdapterRuntime', () => {
         channel: 'feishu',
         intent: 'command',
         receivedAt: '2026-04-27T00:00:00.000Z',
-        actor: { openId: 'ou_test' },
-        target: { channel: 'feishu', chatId: 'oc_test', messageId: 'msg-1' },
+        actor: { openId: 'fixture-user-alpha' },
+        target: { channel: 'feishu', chatId: 'fixture-chat-alpha', messageId: 'msg-1' },
         text: 'room 1001 checkout',
         rawEvent: {},
         metadata: { eventType: 'im.message.receive_v1' }
@@ -346,8 +357,8 @@ describe('createAdapterRuntime', () => {
       callbackTokenEnvName: 'AI_PMS_CALLBACK_TOKEN',
       callbackTimeoutMs: 5000,
       inboundTurnTimeoutMs: 5000,
-      allowedChatIds: ['oc_allowed'],
-      allowedOpenIds: ['ou_allowed'],
+      allowedChatIds: ['fixture-chat-allowed'],
+      allowedOpenIds: ['fixture-user-allowed'],
       allowedUserIds: [],
       allowedUnionIds: []
     };
@@ -382,8 +393,8 @@ describe('createAdapterRuntime', () => {
         channel: 'feishu',
         intent: 'command',
         receivedAt: '2026-04-27T00:00:00.000Z',
-        actor: { openId: 'ou_allowed' },
-        target: { channel: 'feishu', chatId: 'oc_denied', messageId: 'msg-denied-chat' },
+        actor: { openId: 'fixture-user-allowed' },
+        target: { channel: 'feishu', chatId: 'fixture-chat-denied', messageId: 'msg-denied-chat' },
         text: 'room 1001 checkout',
         rawEvent: {},
         metadata: { eventType: 'im.message.receive_v1' }
@@ -397,8 +408,8 @@ describe('createAdapterRuntime', () => {
         channel: 'feishu',
         intent: 'command',
         receivedAt: '2026-04-27T00:00:01.000Z',
-        actor: { openId: 'ou_denied' },
-        target: { channel: 'feishu', chatId: 'oc_allowed', messageId: 'msg-denied-actor' },
+        actor: { openId: 'fixture-user-denied' },
+        target: { channel: 'feishu', chatId: 'fixture-chat-allowed', messageId: 'msg-denied-actor' },
         text: 'room 1001 checkout',
         rawEvent: {},
         metadata: { eventType: 'im.message.receive_v1' }
@@ -408,6 +419,357 @@ describe('createAdapterRuntime', () => {
       });
 
       expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('forwards authorized generic command turns to ai-conversation with adapter auth', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true, status: 'handled', intent: 'conversation.generic' }), { status: 202 }));
+    vi.stubGlobal('fetch', fetchMock);
+    let handleTurn: Parameters<AdapterRuntimeDeps['createLongConnectionIngress']>[1] | undefined;
+    const config = createConfig('long_connection');
+    config.providers = {
+      keys: ['warning-agent', 'pms-checkout'],
+      defaultProvider: 'pms-checkout',
+      allowProviderOverride: false,
+      webhookAuthToken: undefined
+    };
+    config.pmsCheckout = {
+      callbackUrl: undefined,
+      inboundTurnUrl: 'http://127.0.0.1:8792/pms/checkout/feishu-message',
+      callbackToken: 'callback-token-1',
+      callbackTokenHeader: 'X-AI-PMS-CALLBACK-TOKEN',
+      callbackTokenEnvName: 'AI_PMS_CALLBACK_TOKEN',
+      callbackTimeoutMs: 5000,
+      inboundTurnTimeoutMs: 5000,
+      allowedChatIds: ['fixture-chat-allowed'],
+      allowedOpenIds: ['fixture-user-allowed'],
+      allowedUserIds: [],
+      allowedUnionIds: []
+    };
+    config.conversation = {
+      turnUrl: 'http://127.0.0.1:8791/conversation/feishu-turn',
+      inboundAuthToken: 'conversation-token-1',
+      inboundAuthHeader: 'X-AI-CONVERSATION-TOKEN',
+      inboundAuthEnvName: 'AI_CONVERSATION_INBOUND_AUTH_TOKEN',
+      turnTimeoutMs: 5000,
+      allowedChatIds: ['fixture-chat-allowed'],
+      allowedOpenIds: ['fixture-user-allowed'],
+      allowedUserIds: [],
+      allowedUnionIds: []
+    };
+
+    try {
+      createAdapterRuntime(config, {
+        createClient: () => createFeishuClientStub(),
+        createBitableClient: () => createBitableClientStub(),
+        createReplySink: () => ({
+          sendNotification: vi.fn().mockResolvedValue({
+            providerKey: 'warning-agent',
+            deliveryId: 'delivery-1',
+            channel: 'feishu',
+            status: 'delivered'
+          })
+        }),
+        createHttpServer: () => ({
+          listen: vi.fn().mockResolvedValue(undefined),
+          close: vi.fn().mockResolvedValue(undefined)
+        }),
+        createLongConnectionIngress: (_config, nextHandleTurn) => {
+          handleTurn = nextHandleTurn;
+          return {
+            start: vi.fn().mockResolvedValue(undefined),
+            stop: vi.fn().mockResolvedValue(undefined)
+          };
+        }
+      });
+
+      await handleTurn?.({
+        turnId: 'msg-conversation-1',
+        channel: 'feishu',
+        intent: 'command',
+        receivedAt: '2026-04-27T00:00:00.000Z',
+        actor: { openId: 'fixture-user-allowed' },
+        target: { channel: 'feishu', chatId: 'fixture-chat-allowed', messageId: 'msg-conversation-1' },
+        text: 'hello, can you help summarize today?',
+        rawEvent: {},
+        metadata: { eventType: 'im.message.receive_v1' }
+      }, {
+        source: 'long_connection',
+        rawEvent: {}
+      });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [url, init] = fetchMock.mock.calls[0];
+      expect(url).toBe('http://127.0.0.1:8791/conversation/feishu-turn');
+      expect(init?.headers).toMatchObject({
+        'content-type': 'application/json',
+        'X-AI-CONVERSATION-TOKEN': 'conversation-token-1'
+      });
+      const body = JSON.parse(String(init?.body));
+      expect(body).toMatchObject({
+        source: 'adapter-feishu',
+        turn: {
+          turnId: 'msg-conversation-1',
+          channel: 'feishu',
+          text: 'hello, can you help summarize today?'
+        }
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('keeps deterministic PMS checkout command turns on the direct ai-pms route when conversation forwarding is configured', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true, status: 'dry_run_projected' }), { status: 202 }));
+    vi.stubGlobal('fetch', fetchMock);
+    let handleTurn: Parameters<AdapterRuntimeDeps['createLongConnectionIngress']>[1] | undefined;
+    const config = createConfig('long_connection');
+    config.providers = {
+      keys: ['pms-checkout'],
+      defaultProvider: 'pms-checkout',
+      allowProviderOverride: false,
+      webhookAuthToken: undefined
+    };
+    config.pmsCheckout = {
+      callbackUrl: undefined,
+      inboundTurnUrl: 'http://127.0.0.1:8792/pms/checkout/feishu-message',
+      callbackToken: 'callback-token-1',
+      callbackTokenHeader: 'X-AI-PMS-CALLBACK-TOKEN',
+      callbackTokenEnvName: 'AI_PMS_CALLBACK_TOKEN',
+      callbackTimeoutMs: 5000,
+      inboundTurnTimeoutMs: 5000,
+      allowedChatIds: ['fixture-chat-allowed'],
+      allowedOpenIds: [],
+      allowedUserIds: [],
+      allowedUnionIds: []
+    };
+    config.conversation = {
+      turnUrl: 'http://127.0.0.1:8791/conversation/feishu-turn',
+      inboundAuthToken: 'conversation-token-1',
+      inboundAuthHeader: 'X-AI-CONVERSATION-TOKEN',
+      inboundAuthEnvName: 'AI_CONVERSATION_INBOUND_AUTH_TOKEN',
+      turnTimeoutMs: 5000,
+      allowedChatIds: ['fixture-chat-allowed'],
+      allowedOpenIds: [],
+      allowedUserIds: [],
+      allowedUnionIds: []
+    };
+
+    try {
+      createAdapterRuntime(config, {
+        createClient: () => createFeishuClientStub(),
+        createBitableClient: () => createBitableClientStub(),
+        createReplySink: () => ({
+          sendNotification: vi.fn().mockResolvedValue({
+            providerKey: 'pms-checkout',
+            deliveryId: 'delivery-1',
+            channel: 'feishu',
+            status: 'delivered'
+          })
+        }),
+        createHttpServer: () => ({
+          listen: vi.fn().mockResolvedValue(undefined),
+          close: vi.fn().mockResolvedValue(undefined)
+        }),
+        createLongConnectionIngress: (_config, nextHandleTurn) => {
+          handleTurn = nextHandleTurn;
+          return {
+            start: vi.fn().mockResolvedValue(undefined),
+            stop: vi.fn().mockResolvedValue(undefined)
+          };
+        }
+      });
+
+      await handleTurn?.({
+        turnId: 'msg-checkout-1',
+        channel: 'feishu',
+        intent: 'command',
+        receivedAt: '2026-04-27T00:00:00.000Z',
+        actor: { openId: 'fixture-user-allowed' },
+        target: { channel: 'feishu', chatId: 'fixture-chat-allowed', messageId: 'msg-checkout-1' },
+        text: 'room 1001 checkout',
+        rawEvent: {},
+        metadata: { eventType: 'im.message.receive_v1' }
+      }, {
+        source: 'long_connection',
+        rawEvent: {}
+      });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [url, init] = fetchMock.mock.calls[0];
+      expect(url).toBe('http://127.0.0.1:8792/pms/checkout/feishu-message');
+      expect(init?.headers).toMatchObject({
+        'content-type': 'application/json',
+        'X-AI-PMS-CALLBACK-TOKEN': 'callback-token-1'
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('blocks unauthorized generic and PMS turns before conversation or ai-pms forwarding', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 202 }));
+    vi.stubGlobal('fetch', fetchMock);
+    let handleTurn: Parameters<AdapterRuntimeDeps['createLongConnectionIngress']>[1] | undefined;
+    const config = createConfig('long_connection');
+    config.providers = {
+      keys: ['pms-checkout'],
+      defaultProvider: 'pms-checkout',
+      allowProviderOverride: false,
+      webhookAuthToken: undefined
+    };
+    config.pmsCheckout = {
+      callbackUrl: undefined,
+      inboundTurnUrl: 'http://127.0.0.1:8792/pms/checkout/feishu-message',
+      callbackToken: 'callback-token-1',
+      callbackTokenHeader: 'X-AI-PMS-CALLBACK-TOKEN',
+      callbackTokenEnvName: 'AI_PMS_CALLBACK_TOKEN',
+      callbackTimeoutMs: 5000,
+      inboundTurnTimeoutMs: 5000,
+      allowedChatIds: ['fixture-chat-allowed'],
+      allowedOpenIds: ['fixture-user-allowed'],
+      allowedUserIds: [],
+      allowedUnionIds: []
+    };
+    config.conversation = {
+      turnUrl: 'http://127.0.0.1:8791/conversation/feishu-turn',
+      inboundAuthToken: 'conversation-token-1',
+      inboundAuthHeader: 'X-AI-CONVERSATION-TOKEN',
+      inboundAuthEnvName: 'AI_CONVERSATION_INBOUND_AUTH_TOKEN',
+      turnTimeoutMs: 5000,
+      allowedChatIds: ['fixture-chat-allowed'],
+      allowedOpenIds: ['fixture-user-allowed'],
+      allowedUserIds: [],
+      allowedUnionIds: []
+    };
+
+    try {
+      createAdapterRuntime(config, {
+        createClient: () => createFeishuClientStub(),
+        createBitableClient: () => createBitableClientStub(),
+        createReplySink: () => ({
+          sendNotification: vi.fn().mockResolvedValue({
+            providerKey: 'pms-checkout',
+            deliveryId: 'delivery-1',
+            channel: 'feishu',
+            status: 'delivered'
+          })
+        }),
+        createHttpServer: () => ({
+          listen: vi.fn().mockResolvedValue(undefined),
+          close: vi.fn().mockResolvedValue(undefined)
+        }),
+        createLongConnectionIngress: (_config, nextHandleTurn) => {
+          handleTurn = nextHandleTurn;
+          return {
+            start: vi.fn().mockResolvedValue(undefined),
+            stop: vi.fn().mockResolvedValue(undefined)
+          };
+        }
+      });
+
+      await handleTurn?.({
+        turnId: 'msg-denied-generic',
+        channel: 'feishu',
+        intent: 'command',
+        receivedAt: '2026-04-27T00:00:00.000Z',
+        actor: { openId: 'fixture-user-allowed' },
+        target: { channel: 'feishu', chatId: 'fixture-chat-denied', messageId: 'msg-denied-generic' },
+        text: 'hello there',
+        rawEvent: {},
+        metadata: { eventType: 'im.message.receive_v1' }
+      }, {
+        source: 'long_connection',
+        rawEvent: {}
+      });
+
+      await handleTurn?.({
+        turnId: 'msg-denied-pms',
+        channel: 'feishu',
+        intent: 'command',
+        receivedAt: '2026-04-27T00:00:01.000Z',
+        actor: { openId: 'fixture-user-denied' },
+        target: { channel: 'feishu', chatId: 'fixture-chat-allowed', messageId: 'msg-denied-pms' },
+        text: 'room 1001 checkout',
+        rawEvent: {},
+        metadata: { eventType: 'im.message.receive_v1' }
+      }, {
+        source: 'long_connection',
+        rawEvent: {}
+      });
+
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('contains conversation forwarding outages at the adapter boundary', async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new Error('conversation offline'));
+    vi.stubGlobal('fetch', fetchMock);
+    let handleTurn: Parameters<AdapterRuntimeDeps['createLongConnectionIngress']>[1] | undefined;
+    const config = createConfig('long_connection');
+    config.providers = {
+      keys: ['warning-agent'],
+      defaultProvider: 'warning-agent',
+      allowProviderOverride: false,
+      webhookAuthToken: undefined
+    };
+    config.conversation = {
+      turnUrl: 'http://127.0.0.1:8791/conversation/feishu-turn',
+      inboundAuthToken: 'conversation-token-1',
+      inboundAuthHeader: 'X-AI-CONVERSATION-TOKEN',
+      inboundAuthEnvName: 'AI_CONVERSATION_INBOUND_AUTH_TOKEN',
+      turnTimeoutMs: 5000,
+      allowedChatIds: ['fixture-chat-allowed'],
+      allowedOpenIds: [],
+      allowedUserIds: [],
+      allowedUnionIds: []
+    };
+
+    try {
+      createAdapterRuntime(config, {
+        createClient: () => createFeishuClientStub(),
+        createBitableClient: () => createBitableClientStub(),
+        createReplySink: () => ({
+          sendNotification: vi.fn().mockResolvedValue({
+            providerKey: 'warning-agent',
+            deliveryId: 'delivery-1',
+            channel: 'feishu',
+            status: 'delivered'
+          })
+        }),
+        createHttpServer: () => ({
+          listen: vi.fn().mockResolvedValue(undefined),
+          close: vi.fn().mockResolvedValue(undefined)
+        }),
+        createLongConnectionIngress: (_config, nextHandleTurn) => {
+          handleTurn = nextHandleTurn;
+          return {
+            start: vi.fn().mockResolvedValue(undefined),
+            stop: vi.fn().mockResolvedValue(undefined)
+          };
+        }
+      });
+
+      await expect(handleTurn?.({
+        turnId: 'msg-conversation-outage',
+        channel: 'feishu',
+        intent: 'command',
+        receivedAt: '2026-04-27T00:00:00.000Z',
+        actor: { openId: 'fixture-user-allowed' },
+        target: { channel: 'feishu', chatId: 'fixture-chat-allowed', messageId: 'msg-conversation-outage' },
+        text: 'hello there',
+        rawEvent: {},
+        metadata: { eventType: 'im.message.receive_v1' }
+      }, {
+        source: 'long_connection',
+        rawEvent: {}
+      })).resolves.toBeUndefined();
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
     } finally {
       vi.unstubAllGlobals();
     }
