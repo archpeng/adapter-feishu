@@ -3,6 +3,9 @@ import { createBitableClient } from '../../../src/channels/feishu/bitableClient.
 
 describe('createBitableClient', () => {
   const createRecord = vi.fn();
+  const getRecord = vi.fn();
+  const listRecords = vi.fn();
+  const updateRecord = vi.fn();
   const getForm = vi.fn();
   const listTableFields = vi.fn();
   const listFormFields = vi.fn();
@@ -10,13 +13,21 @@ describe('createBitableClient', () => {
 
   beforeEach(() => {
     createRecord.mockReset();
+    getRecord.mockReset();
+    listRecords.mockReset();
+    updateRecord.mockReset();
     getForm.mockReset();
     listTableFields.mockReset();
     listFormFields.mockReset();
     createSdkClient.mockReset();
     createSdkClient.mockReturnValue({
       bitable: {
-        appTableRecord: { create: createRecord },
+        appTableRecord: {
+          create: createRecord,
+          get: getRecord,
+          list: listRecords,
+          update: updateRecord
+        },
         appTableForm: { get: getForm },
         appTableField: { list: listTableFields },
         appTableFormField: { list: listFormFields }
@@ -115,6 +126,132 @@ describe('createBitableClient', () => {
         })
       })
     );
+  });
+
+  it('maps getRecord, listRecords, and updateRecord into stable local shapes', async () => {
+    getRecord.mockResolvedValue({
+      code: 0,
+      data: {
+        record: {
+          record_id: 'rec_room_1',
+          fields: { RoomNumber: '101' },
+          created_time: 1712345678,
+          last_modified_time: 1712345689
+        }
+      }
+    });
+    listRecords.mockResolvedValue({
+      code: 0,
+      data: {
+        items: [
+          {
+            record_id: 'rec_room_1',
+            fields: { RoomNumber: '101' }
+          }
+        ],
+        page_token: 'next_record_page',
+        has_more: true,
+        total: 2
+      }
+    });
+    updateRecord.mockResolvedValue({
+      code: 0,
+      data: {
+        record: {
+          record_id: 'rec_room_1',
+          fields: { RoomNumber: '101', OccupancyStatus: 'InHouse' }
+        }
+      }
+    });
+
+    const client = createBitableClient(
+      {
+        appId: 'cli_test',
+        appSecret: 'secret_test'
+      },
+      { createSdkClient }
+    );
+
+    const record = await client.getRecord({
+      appToken: 'app_token_1',
+      tableId: 'tbl_1',
+      recordId: 'rec_room_1',
+      userIdType: 'open_id'
+    });
+    const recordPage = await client.listRecords({
+      appToken: 'app_token_1',
+      tableId: 'tbl_1',
+      pageSize: 100,
+      pageToken: 'page_1'
+    });
+    const updatedRecord = await client.updateRecord({
+      appToken: 'app_token_1',
+      tableId: 'tbl_1',
+      recordId: 'rec_room_1',
+      fields: { OccupancyStatus: 'InHouse' },
+      userIdType: 'union_id'
+    });
+
+    expect(getRecord).toHaveBeenCalledWith({
+      path: {
+        app_token: 'app_token_1',
+        table_id: 'tbl_1',
+        record_id: 'rec_room_1'
+      },
+      params: {
+        user_id_type: 'open_id'
+      }
+    });
+    expect(listRecords).toHaveBeenCalledWith({
+      path: {
+        app_token: 'app_token_1',
+        table_id: 'tbl_1'
+      },
+      params: {
+        page_size: 100,
+        page_token: 'page_1',
+        user_id_type: 'user_id'
+      }
+    });
+    expect(updateRecord).toHaveBeenCalledWith({
+      path: {
+        app_token: 'app_token_1',
+        table_id: 'tbl_1',
+        record_id: 'rec_room_1'
+      },
+      params: {
+        user_id_type: 'union_id',
+        ignore_consistency_check: undefined
+      },
+      data: {
+        fields: { OccupancyStatus: 'InHouse' }
+      }
+    });
+    expect(record).toEqual({
+      recordId: 'rec_room_1',
+      fields: { RoomNumber: '101' },
+      createdTime: 1712345678,
+      lastModifiedTime: 1712345689
+    });
+    expect(recordPage).toEqual({
+      items: [
+        {
+          recordId: 'rec_room_1',
+          fields: { RoomNumber: '101' },
+          createdTime: undefined,
+          lastModifiedTime: undefined
+        }
+      ],
+      hasMore: true,
+      pageToken: 'next_record_page',
+      total: 2
+    });
+    expect(updatedRecord).toEqual({
+      recordId: 'rec_room_1',
+      fields: { RoomNumber: '101', OccupancyStatus: 'InHouse' },
+      createdTime: undefined,
+      lastModifiedTime: undefined
+    });
   });
 
   it('maps getForm, listFormFields, and listTableFields into stable local shapes', async () => {

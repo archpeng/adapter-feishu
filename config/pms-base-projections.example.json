@@ -1,0 +1,118 @@
+{
+  "version": 1,
+  "policy": {
+    "validateSchemaByDefault": true,
+    "rejectUnmappedFields": true
+  },
+  "bindings": {
+    "roomLedger": {
+      "enabled": true,
+      "target": {
+        "appToken": "example_pms_base_app_token",
+        "tableId": "example_room_ledger_table"
+      },
+      "fieldMap": {
+        "roomNumber": "RoomNumber",
+        "roomType": "RoomType",
+        "occupancyStatus": "OccupancyStatus",
+        "cleaningStatus": "CleaningStatus",
+        "sellableStatus": "SellableStatus",
+        "roomCode": "RoomCode",
+        "currentReservationCode": "CurrentReservationCode",
+        "lastOperator": "LastOperator",
+        "lastReason": "LastReason",
+        "lastUpdatedAt": "LastUpdatedAt"
+      },
+      "requiredFields": [
+        "roomNumber",
+        "roomType",
+        "occupancyStatus",
+        "cleaningStatus",
+        "sellableStatus",
+        "roomCode",
+        "lastOperator",
+        "lastReason",
+        "lastUpdatedAt"
+      ],
+      "updateAllowedFields": [
+        "occupancyStatus",
+        "cleaningStatus",
+        "sellableStatus",
+        "roomCode",
+        "currentReservationCode",
+        "lastOperator",
+        "lastReason",
+        "lastUpdatedAt"
+      ]
+    },
+    "operationRequests": {
+      "enabled": true,
+      "target": {
+        "appToken": "example_pms_base_app_token",
+        "tableId": "example_operation_requests_table"
+      },
+      "fieldMap": {
+        "clientToken": "ClientToken",
+        "action": "Action",
+        "status": "Status",
+        "roomNumber": "RoomNumber",
+        "operator": "Operator",
+        "reason": "Reason",
+        "requestedAt": "RequestedAt",
+        "payloadJSON": "PayloadJSON",
+        "resultJSON": "ResultJSON",
+        "schemaVersion": "SchemaVersion"
+      },
+      "requiredFields": [
+        "clientToken",
+        "action",
+        "status",
+        "roomNumber",
+        "operator",
+        "reason",
+        "requestedAt",
+        "schemaVersion"
+      ],
+      "updateAllowedFields": [
+        "status",
+        "resultJSON",
+        "schemaVersion"
+      ]
+    },
+    "operationLogs": {
+      "enabled": true,
+      "target": {
+        "appToken": "example_pms_base_app_token",
+        "tableId": "example_operation_logs_table"
+      },
+      "fieldMap": {
+        "auditId": "AuditId",
+        "commandType": "CommandType",
+        "roomNumber": "RoomNumber",
+        "actor": "Actor",
+        "source": "Source",
+        "reason": "Reason",
+        "idempotencyKey": "IdempotencyKey",
+        "correlationId": "CorrelationId",
+        "occurredAt": "OccurredAt",
+        "domainEventTypes": "DomainEventTypes",
+        "payloadJSON": "PayloadJSON",
+        "schemaVersion": "SchemaVersion"
+      },
+      "requiredFields": [
+        "auditId",
+        "commandType",
+        "roomNumber",
+        "actor",
+        "source",
+        "reason",
+        "idempotencyKey",
+        "correlationId",
+        "occurredAt",
+        "domainEventTypes",
+        "schemaVersion"
+      ],
+      "updateAllowedFields": []
+    }
+  }
+}

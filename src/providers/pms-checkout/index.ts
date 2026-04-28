@@ -256,7 +256,7 @@ async function deliverDryRunCard(
     target,
     bodyMarkdown: [
       '**PMS preview only.**',
-      'Confirming forwards a typed callback to ai-pms/Hermes; adapter-feishu does not own PMS checkout state.'
+      'Confirming forwards a typed callback to ai-pms through adapter-feishu; adapter-feishu does not own PMS checkout state.'
     ].join('\n'),
     facts: pmsCheckoutFacts(input),
     actions: [pmsCheckoutConfirmAction(input, pendingRecord.pendingId)],
@@ -455,7 +455,7 @@ function buildConfirmCallbackForwardEnvelope(input: {
     orchestrator: {
       toolName: PMS_CHECKOUT_CONFIRM_CALLBACK_HANDLER,
       interaction: 'confirmCallback',
-      conversationOwner: 'hermes',
+      conversationOwner: 'adapter-feishu',
       roomId: input.action.roomId,
       ...(roomNumber ? { roomNumber } : {}),
       ...(projectionTarget ? { target: projectionTarget } : {}),

@@ -34,6 +34,10 @@ describe('loadConfig', () => {
       defaultTarget: undefined,
       registryPath: undefined
     });
+    expect(config.pmsBase).toEqual({
+      webhookAuthToken: undefined,
+      registryPath: undefined
+    });
     expect(config.state).toEqual({
       dedupeTtlSeconds: 300,
       pendingTtlSeconds: 900,
@@ -81,6 +85,8 @@ describe('loadConfig', () => {
       ADAPTER_FEISHU_FORM_DEFAULT_TABLE_ID: 'tbl_1',
       ADAPTER_FEISHU_FORM_DEFAULT_FORM_ID: 'form_1',
       ADAPTER_FEISHU_FORM_REGISTRY_PATH: 'config/form-bindings.example.json',
+      ADAPTER_FEISHU_PMS_BASE_WEBHOOK_AUTH_TOKEN: 'pms-base-token-1',
+      ADAPTER_FEISHU_PMS_BASE_REGISTRY_PATH: 'config/pms-base-projections.example.json',
       ADAPTER_FEISHU_DEDUPE_TTL_SECONDS: '60',
       ADAPTER_FEISHU_PENDING_TTL_SECONDS: '180',
       ADAPTER_FEISHU_PENDING_STATE_PATH: '.local/pending-actions.json',
@@ -115,6 +121,10 @@ describe('loadConfig', () => {
         formId: 'form_1'
       },
       registryPath: 'config/form-bindings.example.json'
+    });
+    expect(config.pmsBase).toEqual({
+      webhookAuthToken: 'pms-base-token-1',
+      registryPath: 'config/pms-base-projections.example.json'
     });
     expect(config.state).toEqual({
       dedupeTtlSeconds: 60,

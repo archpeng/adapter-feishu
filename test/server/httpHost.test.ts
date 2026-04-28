@@ -15,6 +15,10 @@ describe('dispatchAdapterHttpRequest', () => {
       statusCode: 200,
       body: { code: 0, status: 'record_created', recordId: 'rec_1' }
     });
+    const handlePmsBaseProjection = vi.fn().mockResolvedValue({
+      statusCode: 200,
+      body: { code: 0, status: 'updated' }
+    });
     const handleCardAction = vi.fn().mockResolvedValue({
       statusCode: 200,
       body: { code: 0, status: 'accepted' }
@@ -26,6 +30,7 @@ describe('dispatchAdapterHttpRequest', () => {
       handleFeishuWebhook,
       handleProviderWebhook,
       handleFormWebhook,
+      handlePmsBaseProjection,
       handleCardAction
     };
 
@@ -51,6 +56,15 @@ describe('dispatchAdapterHttpRequest', () => {
       {
         method: 'POST',
         pathname: '/providers/form-webhook',
+        headers: {},
+        rawBody: '{}'
+      },
+      deps
+    );
+    const pmsBaseProjection = await dispatchAdapterHttpRequest(
+      {
+        method: 'POST',
+        pathname: '/providers/pms-base',
         headers: {},
         rawBody: '{}'
       },
@@ -100,11 +114,16 @@ describe('dispatchAdapterHttpRequest', () => {
       statusCode: 200,
       body: { code: 0, status: 'record_created', recordId: 'rec_1' }
     });
+    expect(pmsBaseProjection).toEqual({
+      statusCode: 200,
+      body: { code: 0, status: 'updated' }
+    });
     expect(cardAction.statusCode).toBe(200);
     expect(realCardAction.statusCode).toBe(200);
     expect(feishuWebhook.statusCode).toBe(200);
     expect(handleProviderWebhook).toHaveBeenCalledTimes(1);
     expect(handleFormWebhook).toHaveBeenCalledTimes(1);
+    expect(handlePmsBaseProjection).toHaveBeenCalledTimes(1);
     expect(handleCardAction).toHaveBeenCalledTimes(2);
     expect(handleFeishuWebhook).toHaveBeenCalledTimes(1);
     expect(handleFeishuWebhook).toHaveBeenCalledWith({

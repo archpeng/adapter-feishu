@@ -9,7 +9,8 @@ import type { AdapterHttpRequest, AdapterHttpResponse } from '../src/server/http
 
 function createConfig(
   ingressMode: AdapterConfig['feishu']['ingressMode'],
-  registryPath?: string
+  registryPath?: string,
+  pmsBaseRegistryPath?: string
 ): AdapterConfig {
   return {
     service: {
@@ -41,6 +42,10 @@ function createConfig(
         formId: 'form_default'
       },
       registryPath
+    },
+    pmsBase: {
+      webhookAuthToken: undefined,
+      registryPath: pmsBaseRegistryPath
     },
     state: {
       dedupeTtlSeconds: 300,
@@ -83,6 +88,9 @@ function createFeishuClientStub() {
 function createBitableClientStub(createRecord = vi.fn().mockResolvedValue({ recordId: 'rec-1' })) {
   return {
     createRecord,
+    getRecord: vi.fn(),
+    listRecords: vi.fn(),
+    updateRecord: vi.fn(),
     getForm: vi.fn(),
     listFormFields: vi.fn(),
     listTableFields: vi.fn()
@@ -153,6 +161,7 @@ describe('createAdapterRuntime', () => {
     const runtime = createAdapterRuntime(createConfig('webhook'), createRuntimeDeps());
 
     expect(runtime.formRegistry).toBeUndefined();
+    expect(runtime.pmsBaseProjectionRegistry).toBeUndefined();
   });
 
   it('loads the example managed form registry during runtime creation', () => {
@@ -187,6 +196,15 @@ describe('createAdapterRuntime', () => {
         }
       }
     });
+  });
+
+  it('loads the example PMS Base projection registry during runtime creation', () => {
+    const pmsBaseRegistryPath = fileURLToPath(new URL('../config/pms-base-projections.example.json', import.meta.url));
+
+    const runtime = createAdapterRuntime(createConfig('webhook', undefined, pmsBaseRegistryPath), createRuntimeDeps());
+
+    expect(runtime.pmsBaseProjectionRegistry?.bindings.roomLedger.fieldMap.roomNumber).toBe('RoomNumber');
+    expect(runtime.pmsBaseProjectionRegistry?.bindings.operationRequests.updateAllowedFields).toContain('resultJSON');
   });
 
   it('fails fast when configured managed form registry cannot be loaded or parsed', () => {

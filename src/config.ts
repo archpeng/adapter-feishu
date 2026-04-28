@@ -36,6 +36,10 @@ export interface AdapterConfig {
     defaultTarget?: FeishuFormDefaultTargetConfig;
     registryPath?: string;
   };
+  pmsBase: {
+    webhookAuthToken?: string;
+    registryPath?: string;
+  };
   state: {
     dedupeTtlSeconds: number;
     pendingTtlSeconds: number;
@@ -257,6 +261,10 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       userIdType: parseFeishuUserIdType(env, 'ADAPTER_FEISHU_FORM_USER_ID_TYPE', 'user_id'),
       defaultTarget: parseOptionalFormDefaultTarget(env),
       registryPath: env.ADAPTER_FEISHU_FORM_REGISTRY_PATH?.trim() || undefined
+    },
+    pmsBase: {
+      webhookAuthToken: env.ADAPTER_FEISHU_PMS_BASE_WEBHOOK_AUTH_TOKEN?.trim() || undefined,
+      registryPath: env.ADAPTER_FEISHU_PMS_BASE_REGISTRY_PATH?.trim() || undefined
     },
     state: {
       dedupeTtlSeconds: parsePositiveInteger(env, 'ADAPTER_FEISHU_DEDUPE_TTL_SECONDS', 300),

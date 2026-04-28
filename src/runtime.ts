@@ -17,6 +17,10 @@ import { createConversationHttpTurnForwarder } from './conversation/forwarder.js
 import { type InboundTurn, type JsonRecord, type ProviderKey } from './core/contracts.js';
 import { loadManagedFormRegistry, type ManagedFormRegistry } from './forms/registry.js';
 import {
+  loadPmsBaseProjectionRegistry,
+  type PmsBaseProjectionRegistry
+} from './projections/pmsBase.js';
+import {
   createProviderRegistry,
   registerProvider,
   type ProviderRegistry
@@ -37,6 +41,7 @@ import {
 import { dispatchCardActionRequest, type CardActionRequest } from './server/cardAction.js';
 import { dispatchFormWebhookRequest } from './server/formWebhook.js';
 import { dispatchAdapterHttpRequest, type AdapterHttpRequest, type AdapterHttpResponse } from './server/httpHost.js';
+import { dispatchPmsBaseProjectionRequest } from './server/pmsBaseProjection.js';
 import { dispatchProviderWebhookRequest } from './server/providerWebhook.js';
 import { createAlertDeduper, type AlertDeduper } from './state/dedupe.js';
 import { createPendingStore, type PendingStore } from './state/pendingStore.js';
@@ -48,6 +53,7 @@ export interface AdapterRuntime {
   deduper: AlertDeduper;
   pendingStore: PendingStore;
   formRegistry?: ManagedFormRegistry;
+  pmsBaseProjectionRegistry?: PmsBaseProjectionRegistry;
   start(): Promise<void>;
   stop(): Promise<void>;
 }
@@ -169,6 +175,9 @@ export function createAdapterRuntime(
   const tableWriteQueue = createTableWriteQueue();
   const formRegistry = config.form.registryPath
     ? loadManagedFormRegistry(config.form.registryPath)
+    : undefined;
+  const pmsBaseProjectionRegistry = config.pmsBase.registryPath
+    ? loadPmsBaseProjectionRegistry(config.pmsBase.registryPath)
     : undefined;
   const now = () => new Date().toISOString();
 
@@ -379,6 +388,14 @@ export function createAdapterRuntime(
             tableWriteQueue
           });
         },
+        handlePmsBaseProjection(requestBody) {
+          return dispatchPmsBaseProjectionRequest(requestBody, {
+            bitableClient,
+            registry: pmsBaseProjectionRegistry,
+            authToken: config.pmsBase.webhookAuthToken,
+            now
+          });
+        },
         handleCardAction(requestBody) {
           return handleCardActionRequest(requestBody);
         }
@@ -392,6 +409,7 @@ export function createAdapterRuntime(
     deduper,
     pendingStore,
     formRegistry,
+    pmsBaseProjectionRegistry,
     async start() {
       await httpServer.listen();
       if (config.feishu.ingressMode === 'long_connection') {

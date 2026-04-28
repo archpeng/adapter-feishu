@@ -3,6 +3,7 @@ import type { DispatchRequest, DispatchResponse } from '../channels/feishu/webho
 import type { CardActionRequest, CardActionResponse } from './cardAction.js';
 import type { FormWebhookRequest, FormWebhookResponse } from './formWebhook.js';
 import type { ProviderWebhookRequest, ProviderWebhookResponse } from './providerWebhook.js';
+import type { PmsBaseProjectionRequest, PmsBaseProjectionResponse } from './pmsBaseProjection.js';
 
 export interface AdapterHttpRequest {
   method?: string;
@@ -15,6 +16,7 @@ export type AdapterHttpResponse =
   | DispatchResponse
   | ProviderWebhookResponse
   | FormWebhookResponse
+  | PmsBaseProjectionResponse
   | CardActionResponse;
 
 export interface AdapterHttpDispatchDeps {
@@ -23,6 +25,7 @@ export interface AdapterHttpDispatchDeps {
   handleFeishuWebhook(request: DispatchRequest): Promise<DispatchResponse>;
   handleProviderWebhook(request: ProviderWebhookRequest): Promise<ProviderWebhookResponse>;
   handleFormWebhook(request: FormWebhookRequest): Promise<FormWebhookResponse>;
+  handlePmsBaseProjection(request: PmsBaseProjectionRequest): Promise<PmsBaseProjectionResponse>;
   handleCardAction(request: CardActionRequest): Promise<CardActionResponse>;
 }
 
@@ -50,6 +53,10 @@ export async function dispatchAdapterHttpRequest(
 
   if (pathname === '/providers/form-webhook') {
     return deps.handleFormWebhook(request);
+  }
+
+  if (pathname === '/providers/pms-base') {
+    return deps.handlePmsBaseProjection(request);
   }
 
   if (pathname === '/card-action' || pathname === '/providers/card-action' || pathname === '/webhook/card') {

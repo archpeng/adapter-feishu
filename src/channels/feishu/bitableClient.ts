@@ -16,6 +16,24 @@ export interface BitableFormTarget extends BitableTableTarget {
   formId: string;
 }
 
+export interface GetBitableRecordRequest extends BitableTableTarget {
+  recordId: string;
+  userIdType?: FeishuUserIdType;
+}
+
+export interface ListBitableRecordsRequest extends BitableTableTarget {
+  pageSize?: number;
+  pageToken?: string;
+  userIdType?: FeishuUserIdType;
+}
+
+export interface UpdateBitableRecordRequest extends BitableTableTarget {
+  recordId: string;
+  fields: Record<string, unknown>;
+  userIdType?: FeishuUserIdType;
+  ignoreConsistencyCheck?: boolean;
+}
+
 export interface CreateBitableRecordRequest extends BitableTableTarget {
   fields: Record<string, unknown>;
   clientToken?: string;
@@ -38,6 +56,13 @@ export interface BitableRecord {
   fields: Record<string, unknown>;
   createdTime?: number;
   lastModifiedTime?: number;
+}
+
+export interface BitableRecordPage {
+  items: BitableRecord[];
+  hasMore: boolean;
+  pageToken?: string;
+  total?: number;
 }
 
 export interface BitableForm {
@@ -81,6 +106,9 @@ export interface BitableTableFieldPage {
 
 export interface BitableClient {
   createRecord(request: CreateBitableRecordRequest): Promise<BitableRecord>;
+  getRecord(request: GetBitableRecordRequest): Promise<BitableRecord>;
+  listRecords(request: ListBitableRecordsRequest): Promise<BitableRecordPage>;
+  updateRecord(request: UpdateBitableRecordRequest): Promise<BitableRecord>;
   getForm(request: BitableFormTarget): Promise<BitableForm>;
   listFormFields(request: ListBitableFormFieldsRequest): Promise<BitableFormFieldPage>;
   listTableFields(request: ListBitableTableFieldsRequest): Promise<BitableTableFieldPage>;
@@ -97,6 +125,77 @@ interface BitableSdkClient {
         params?: {
           user_id_type?: FeishuUserIdType;
           client_token?: string;
+          ignore_consistency_check?: boolean;
+        };
+        data: {
+          fields: Record<string, unknown>;
+        };
+      }): Promise<{
+        code?: number;
+        msg?: string;
+        data?: {
+          record?: {
+            record_id?: string;
+            fields?: Record<string, unknown>;
+            created_time?: number;
+            last_modified_time?: number;
+          };
+        };
+      }>;
+      get(payload: {
+        path: {
+          app_token: string;
+          table_id: string;
+          record_id: string;
+        };
+        params?: {
+          user_id_type?: FeishuUserIdType;
+        };
+      }): Promise<{
+        code?: number;
+        msg?: string;
+        data?: {
+          record?: {
+            record_id?: string;
+            fields?: Record<string, unknown>;
+            created_time?: number;
+            last_modified_time?: number;
+          };
+        };
+      }>;
+      list(payload: {
+        path: {
+          app_token: string;
+          table_id: string;
+        };
+        params?: {
+          page_size?: number;
+          page_token?: string;
+          user_id_type?: FeishuUserIdType;
+        };
+      }): Promise<{
+        code?: number;
+        msg?: string;
+        data?: {
+          items?: Array<{
+            record_id?: string;
+            fields?: Record<string, unknown>;
+            created_time?: number;
+            last_modified_time?: number;
+          }>;
+          page_token?: string;
+          has_more?: boolean;
+          total?: number;
+        };
+      }>;
+      update(payload: {
+        path: {
+          app_token: string;
+          table_id: string;
+          record_id: string;
+        };
+        params?: {
+          user_id_type?: FeishuUserIdType;
           ignore_consistency_check?: boolean;
         };
         data: {
@@ -238,6 +337,92 @@ export function createBitableClient(
       const record = recordValue(response.data?.record);
       return {
         recordId: stringValue(record?.record_id),
+        fields: recordValue(record?.fields) ?? request.fields,
+        createdTime: numberValue(record?.created_time),
+        lastModifiedTime: numberValue(record?.last_modified_time)
+      };
+    },
+
+    async getRecord(request) {
+      const response = assertSdkSuccess(
+        await sdkClient.bitable.appTableRecord.get({
+          path: {
+            app_token: request.appToken,
+            table_id: request.tableId,
+            record_id: request.recordId
+          },
+          params: {
+            user_id_type: request.userIdType ?? 'user_id'
+          }
+        }),
+        'Failed to get Feishu Bitable record'
+      );
+
+      const record = recordValue(response.data?.record);
+      return {
+        recordId: stringValue(record?.record_id) ?? request.recordId,
+        fields: recordValue(record?.fields) ?? {},
+        createdTime: numberValue(record?.created_time),
+        lastModifiedTime: numberValue(record?.last_modified_time)
+      };
+    },
+
+    async listRecords(request) {
+      const response = assertSdkSuccess(
+        await sdkClient.bitable.appTableRecord.list({
+          path: {
+            app_token: request.appToken,
+            table_id: request.tableId
+          },
+          params: {
+            page_size: request.pageSize,
+            page_token: request.pageToken,
+            user_id_type: request.userIdType ?? 'user_id'
+          }
+        }),
+        'Failed to list Feishu Bitable records'
+      );
+
+      const data = recordValue(response.data);
+      const rawItems = Array.isArray(data?.items) ? data.items : [];
+      return {
+        items: rawItems.map((item) => {
+          const record = recordValue(item);
+          return {
+            recordId: stringValue(record?.record_id),
+            fields: recordValue(record?.fields) ?? {},
+            createdTime: numberValue(record?.created_time),
+            lastModifiedTime: numberValue(record?.last_modified_time)
+          };
+        }),
+        hasMore: booleanValue(data?.has_more) ?? false,
+        pageToken: stringValue(data?.page_token),
+        total: numberValue(data?.total)
+      };
+    },
+
+    async updateRecord(request) {
+      const response = assertSdkSuccess(
+        await sdkClient.bitable.appTableRecord.update({
+          path: {
+            app_token: request.appToken,
+            table_id: request.tableId,
+            record_id: request.recordId
+          },
+          params: {
+            user_id_type: request.userIdType ?? 'user_id',
+            ignore_consistency_check: request.ignoreConsistencyCheck
+          },
+          data: {
+            fields: request.fields
+          }
+        }),
+        'Failed to update Feishu Bitable record'
+      );
+
+      const record = recordValue(response.data?.record);
+      return {
+        recordId: stringValue(record?.record_id) ?? request.recordId,
         fields: recordValue(record?.fields) ?? request.fields,
         createdTime: numberValue(record?.created_time),
         lastModifiedTime: numberValue(record?.last_modified_time)
