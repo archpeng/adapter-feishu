@@ -1,3 +1,5 @@
+> Historical ideation note. Do not use this file as the active PMS Base schema SSOT. The active Chinese table/view/form/field definition lives in `pms-platform/packages/provisioning/src/index.ts` and is summarized in `pms-platform/docs/pms-base-provisioning-v1.md`; adapter-feishu only owns registry handoff/runtime wrappers.
+
 下面是一套可以落地的方案。我把它设计成 **“飞书多维表格 + 表单视图 + 自动化 + Bot 通知 + Codex/MCP Adapter”** 的轻量智能 PMS，重点服务 **客房房态管理、保洁派单、工程停卖、前台退房/换房/延住、经理看板**。
 
 我也整理了一个 TypeScript MCP Adapter 脚手架，包含飞书 API Client、PMS 状态机、MCP tools、Codex 配置示例和多维表格建表文档：

@@ -203,7 +203,7 @@ describe('createAdapterRuntime', () => {
 
     const runtime = createAdapterRuntime(createConfig('webhook', undefined, pmsBaseRegistryPath), createRuntimeDeps());
 
-    expect(runtime.pmsBaseProjectionRegistry?.bindings.roomLedger.fieldMap.roomNumber).toBe('RoomNumber');
+    expect(runtime.pmsBaseProjectionRegistry?.bindings.roomLedger.fieldMap.roomNumber).toBe('房号');
     expect(runtime.pmsBaseProjectionRegistry?.bindings.operationRequests.updateAllowedFields).toContain('resultJSON');
   });
 

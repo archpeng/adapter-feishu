@@ -1,3 +1,5 @@
+> Historical ideation note. Do not use this file as the active PMS Base schema SSOT. The active Chinese table/view/form/field definition lives in `pms-platform/packages/provisioning/src/index.ts` and is summarized in `pms-platform/docs/pms-base-provisioning-v1.md`; adapter-feishu only owns registry handoff/runtime wrappers.
+
 是的，**已经设计了一个基于飞书多维表格的智能 PMS 核心方案**，并且它已经覆盖了酒店前台最核心的 **房态管理、查看、退房、保洁联动、工程停卖、任务流转、操作留痕** 需求。
 
 但我需要明确区分两件事：

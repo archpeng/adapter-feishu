@@ -291,7 +291,7 @@ S1 PMS smart-intake uses the same managed routing contract as the generic exampl
 ADAPTER_FEISHU_FORM_REGISTRY_PATH=config/pms-form-bindings.example.json
 ```
 
-`config/pms-form-bindings.example.json` is safe to commit because every target value is an obvious placeholder. Real deployments must mount or copy a tenant-specific registry with real server-side `target` values outside git. Build the target sandbox Base from `docs/runbook/adapter-feishu-pms-base-setup.md` before replacing the placeholder target values.
+`config/pms-form-bindings.example.json` is safe to commit because every target value is an obvious placeholder. Real deployments must mount or copy a tenant-specific registry with real server-side `target` values outside git. The active PMS Base table schema is owned by `pms-platform/packages/provisioning/src/index.ts`; use `docs/runbook/adapter-feishu-pms-base-setup.md` only for adapter registry handoff and mount checks.
 
 PMS callers send only:
 

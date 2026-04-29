@@ -123,17 +123,16 @@ pms operation request table = PMS 智能表单底表 / command intake table
 | 验证 | 单测覆盖至少 3 个 PMS formKey：正常映射、unmapped field、fixed field conflict、target override rejection。 |
 | 非目标 | 不读取房间台账，不执行退房状态机，不自动创建保洁任务。 |
 
-### Wave 2 — Feishu Base schema and view contract
+### Wave 2 — Feishu Base registry handoff contract
 
 | 项 | 内容 |
 |---|---|
-| 目标 | 把 PRD 中 PMS 数据模型落成 Base/table/form/view 的配置说明，使产品路径可由飞书低代码能力承接。 |
-| 主要产物 | `docs/roadmap/pms-base-schema.md` 或 `docs/runbook/adapter-feishu-pms-base-setup.md`。 |
-| 必备表 | 房间台账、智能 PMS 操作请求、保洁任务、工程维修、预订订单、操作日志、房型库存日历。 |
-| 必备视图 | 前台房态墙、今日可售房、今日预抵、今日预离、在住房、空脏房、待查房、清扫中、工程停卖、异常房。 |
-| 达成标准 | 每张表列出字段、类型建议、主键/唯一键、敏感字段规则、权限角色；每个 formKey 映射到明确表/字段。 |
-| 验证 | 人工按文档创建一套 sandbox Base；用现有 `/providers/form-webhook` 写入至少一个 `pms-intake` record。 |
-| 非目标 | adapter 不负责自动建表；文档不包含真实 appToken/tableId/formId。 |
+| 目标 | 保留 adapter 侧 registry/mount/schema-drift 交接说明；PMS Base 表格和最终用户中文界面定义由 `pms-platform/packages/provisioning/src/index.ts` 作为 SSOT。 |
+| 主要产物 | `docs/runbook/adapter-feishu-pms-base-setup.md` 作为 adapter registry handoff；schema SSOT 在 `pms-platform/docs/pms-base-provisioning-v1.md`。 |
+| 必备绑定 | `roomLedger`, `operationRequests`, `housekeepingTasks`, `maintenanceTickets`, `reservations`, `operationLogs`。 |
+| 达成标准 | adapter 文档不再声明表结构定义权；只描述 `ADAPTER_FEISHU_PMS_BASE_REGISTRY_PATH`、target shielding、fieldMap、schema drift 和 wrapper probe。 |
+| 验证 | registry mount probe 与 `pms_base_*` wrapper tests；表结构变更先在 `pms-platform` spec 中验证。 |
+| 非目标 | adapter 不负责自动建表；adapter 不作为 PMS Base schema SSOT；文档不包含真实 appToken/tableId/formId。 |
 
 ### Wave 3 — Test-first PMS managed routing hardening
 
@@ -290,7 +289,7 @@ docs/archive/plan/adapter-feishu-pms-smart-intake-v1-2026-04-24_CLOSEOUT.md
 
 ```text
 S1: 增加 PMS registry example 和 docs mapping
-S2: 增加 PMS Base setup contract
+S2: 增加 PMS Base registry handoff contract；后续表结构 SSOT 迁到 pms-platform
 S3: 补 PMS managed routing tests，证明 CHECK_OUT / REPORT_MAINTENANCE / HOUSEKEEPING_DONE smart intake
 ```
 
@@ -299,7 +298,7 @@ S3: 补 PMS managed routing tests，证明 CHECK_OUT / REPORT_MAINTENANCE / HOUS
 ```text
 - 未改变 adapter core boundary
 - 多 PMS formKey 可通过 registry 表达
-- PMS Base setup contract 足够 operator 创建 sandbox Base
+- adapter PMS Base 文档限定为 registry handoff；sandbox Base 表结构由 pms-platform provisioning spec 定义
 - npm run verify 通过
 - 真实 Feishu sandbox smoke 仍 defer 到 Wave 4 或 successor pack
 ```

@@ -6,8 +6,14 @@ import {
   type PmsBaseProjectionRegistry,
   pms_base_append_operation_log,
   pms_base_dashboard_projection,
+  pms_base_get_reservation_projection,
   pms_base_get_room_projection,
+  pms_base_today_arrivals_projection,
+  pms_base_today_departures_projection,
+  pms_base_upsert_housekeeping_task_projection,
+  pms_base_upsert_maintenance_ticket_projection,
   pms_base_upsert_operation_request,
+  pms_base_upsert_reservation_projection,
   pms_base_upsert_room_projection,
   pms_base_update_operation_result,
   pms_base_update_room_projection
@@ -166,6 +172,83 @@ export async function dispatchPmsBaseProjectionRequest(
         { auditId, fields },
         { bitableClient: deps.bitableClient, registry: deps.registry, now: deps.now }
       );
+      return { statusCode: 200, body: { code: 0, ...result } };
+    }
+
+    if (operation === 'pms_base_upsert_housekeeping_task_projection') {
+      const taskId = stringField(payload, 'taskId');
+      const fields = recordField(payload, 'fields');
+      if (!taskId || !fields) {
+        return invalidPayloadResponse([
+          ...(!taskId ? ['task_id_required'] : []),
+          ...(!fields ? ['fields_required'] : [])
+        ]);
+      }
+      const result = await pms_base_upsert_housekeeping_task_projection(
+        { taskId, fields },
+        { bitableClient: deps.bitableClient, registry: deps.registry, now: deps.now }
+      );
+      return { statusCode: 200, body: { code: 0, ...result } };
+    }
+
+    if (operation === 'pms_base_upsert_maintenance_ticket_projection') {
+      const ticketId = stringField(payload, 'ticketId');
+      const fields = recordField(payload, 'fields');
+      if (!ticketId || !fields) {
+        return invalidPayloadResponse([
+          ...(!ticketId ? ['ticket_id_required'] : []),
+          ...(!fields ? ['fields_required'] : [])
+        ]);
+      }
+      const result = await pms_base_upsert_maintenance_ticket_projection(
+        { ticketId, fields },
+        { bitableClient: deps.bitableClient, registry: deps.registry, now: deps.now }
+      );
+      return { statusCode: 200, body: { code: 0, ...result } };
+    }
+
+    if (operation === 'pms_base_get_reservation_projection') {
+      const reservationCode = stringField(payload, 'reservationCode');
+      if (!reservationCode) {
+        return invalidPayloadResponse(['reservation_code_required']);
+      }
+      const result = await pms_base_get_reservation_projection(
+        { reservationCode },
+        { bitableClient: deps.bitableClient, registry: deps.registry, now: deps.now }
+      );
+      return { statusCode: 200, body: { code: 0, ...result } };
+    }
+
+    if (operation === 'pms_base_upsert_reservation_projection') {
+      const reservationCode = stringField(payload, 'reservationCode');
+      const fields = recordField(payload, 'fields');
+      if (!reservationCode || !fields) {
+        return invalidPayloadResponse([
+          ...(!reservationCode ? ['reservation_code_required'] : []),
+          ...(!fields ? ['fields_required'] : [])
+        ]);
+      }
+      const result = await pms_base_upsert_reservation_projection(
+        { reservationCode, fields },
+        { bitableClient: deps.bitableClient, registry: deps.registry, now: deps.now }
+      );
+      return { statusCode: 200, body: { code: 0, ...result } };
+    }
+
+    if (operation === 'pms_base_today_arrivals_projection' || operation === 'pms_base_today_departures_projection') {
+      const businessDate = stringField(payload, 'businessDate');
+      if (!businessDate) {
+        return invalidPayloadResponse(['business_date_required']);
+      }
+      const result = operation === 'pms_base_today_arrivals_projection'
+        ? await pms_base_today_arrivals_projection(
+            { businessDate },
+            { bitableClient: deps.bitableClient, registry: deps.registry, now: deps.now }
+          )
+        : await pms_base_today_departures_projection(
+            { businessDate },
+            { bitableClient: deps.bitableClient, registry: deps.registry, now: deps.now }
+          );
       return { statusCode: 200, body: { code: 0, ...result } };
     }
 

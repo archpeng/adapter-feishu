@@ -8,7 +8,13 @@ import type {
 
 export const PMS_BASE_PROJECTION_SCHEMA_VERSION = 'pms-dashboard-mvp-v1';
 
-export type PmsBaseProjectionBindingKey = 'roomLedger' | 'operationRequests' | 'operationLogs';
+export type PmsBaseProjectionBindingKey =
+  | 'roomLedger'
+  | 'operationRequests'
+  | 'housekeepingTasks'
+  | 'maintenanceTickets'
+  | 'reservations'
+  | 'operationLogs';
 
 export interface PmsBaseProjectionBindingPolicy {
   validateSchemaByDefault: boolean;
@@ -70,6 +76,29 @@ export interface PmsBaseAppendOperationLogRequest {
   fields: Record<string, unknown>;
 }
 
+export interface PmsBaseUpsertHousekeepingTaskProjectionRequest {
+  taskId: string;
+  fields: Record<string, unknown>;
+}
+
+export interface PmsBaseUpsertMaintenanceTicketProjectionRequest {
+  ticketId: string;
+  fields: Record<string, unknown>;
+}
+
+export interface PmsBaseGetReservationProjectionRequest {
+  reservationCode: string;
+}
+
+export interface PmsBaseTodayReservationsProjectionRequest {
+  businessDate: string;
+}
+
+export interface PmsBaseUpsertReservationProjectionRequest {
+  reservationCode: string;
+  fields: Record<string, unknown>;
+}
+
 export interface PmsBaseRoomProjectionResult {
   operation: 'pms_base_get_room_projection';
   schemaVersion: typeof PMS_BASE_PROJECTION_SCHEMA_VERSION;
@@ -104,11 +133,29 @@ export interface PmsBaseUpdateProjectionResult {
     | 'pms_base_update_operation_result'
     | 'pms_base_upsert_room_projection'
     | 'pms_base_update_room_projection'
-    | 'pms_base_append_operation_log';
+    | 'pms_base_append_operation_log'
+    | 'pms_base_upsert_housekeeping_task_projection'
+    | 'pms_base_upsert_maintenance_ticket_projection'
+    | 'pms_base_upsert_reservation_projection';
   schemaVersion: typeof PMS_BASE_PROJECTION_SCHEMA_VERSION;
   status: 'created' | 'updated';
   updatedFields: string[];
   projection: Record<string, unknown>;
+}
+
+export interface PmsBaseReservationProjectionResult {
+  operation: 'pms_base_get_reservation_projection';
+  schemaVersion: typeof PMS_BASE_PROJECTION_SCHEMA_VERSION;
+  reservation: Record<string, unknown>;
+  projectionFreshness: 'Fresh';
+}
+
+export interface PmsBaseReservationListProjectionResult {
+  operation: 'pms_base_today_arrivals_projection' | 'pms_base_today_departures_projection';
+  schemaVersion: typeof PMS_BASE_PROJECTION_SCHEMA_VERSION;
+  businessDate: string;
+  reservations: Record<string, unknown>[];
+  projectionFreshness: 'Fresh';
 }
 
 export class PmsBaseProjectionError extends Error {
@@ -123,6 +170,14 @@ export class PmsBaseProjectionError extends Error {
   }
 }
 
+const ALL_BINDING_KEYS: PmsBaseProjectionBindingKey[] = [
+  'roomLedger',
+  'operationRequests',
+  'housekeepingTasks',
+  'maintenanceTickets',
+  'reservations',
+  'operationLogs'
+];
 const REQUIRED_BINDING_KEYS: PmsBaseProjectionBindingKey[] = ['roomLedger', 'operationRequests', 'operationLogs'];
 const DEFAULT_RECORD_PAGE_SIZE = 500;
 const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -184,7 +239,10 @@ export function parsePmsBaseProjectionRegistry(
       }
     }
 
-    for (const bindingKey of REQUIRED_BINDING_KEYS) {
+    for (const bindingKey of ALL_BINDING_KEYS) {
+      if (!REQUIRED_BINDING_KEYS.includes(bindingKey) && bindingsValue[bindingKey] === undefined) {
+        continue;
+      }
       const binding = parseBinding(bindingKey, bindingsValue[bindingKey], errors);
       if (binding) {
         bindings[bindingKey] = binding;
@@ -250,17 +308,17 @@ export async function pms_base_dashboard_projection(
     summary: {
       summaryStatus: 'Fresh',
       totalRooms: rooms.length,
-      vacantClean: rooms.filter((room) => room.occupancyStatus === 'Vacant' && room.cleaningStatus === 'Clean').length,
-      vacantDirty: rooms.filter((room) => room.occupancyStatus === 'Vacant' && room.cleaningStatus === 'Dirty').length,
-      inHouse: rooms.filter((room) => room.occupancyStatus === 'InHouse').length,
-      dueOut: rooms.filter((room) => room.occupancyStatus === 'DueOut').length,
-      stopSell: rooms.filter((room) => room.sellableStatus === 'StopSell').length,
-      cleaningQueue: rooms.filter((room) => room.cleaningStatus === 'Cleaning' || room.cleaningStatus === 'Dirty').length,
-      inspectionQueue: rooms.filter((room) => room.cleaningStatus === 'Inspection').length,
+      vacantClean: rooms.filter((room) => statusIn(room.occupancyStatus, ['Vacant', '空房']) && statusIn(room.cleaningStatus, ['Clean', '干净'])).length,
+      vacantDirty: rooms.filter((room) => statusIn(room.occupancyStatus, ['Vacant', '空房']) && statusIn(room.cleaningStatus, ['Dirty', '脏房'])).length,
+      inHouse: rooms.filter((room) => statusIn(room.occupancyStatus, ['InHouse', '在住'])).length,
+      dueOut: rooms.filter((room) => statusIn(room.occupancyStatus, ['DueOut', '预离'])).length,
+      stopSell: rooms.filter((room) => statusIn(room.sellableStatus, ['StopSell', '停售维修', '停售保留', '停售业主'])).length,
+      cleaningQueue: rooms.filter((room) => statusIn(room.cleaningStatus, ['Cleaning', 'Dirty', 'Rework', '清洁中', '脏房', '返工'])).length,
+      inspectionQueue: rooms.filter((room) => statusIn(room.cleaningStatus, ['Inspection', '待查'])).length,
       pendingOperationRequests: operations.filter((operation) =>
-        operation.status === 'Pending' || operation.status === 'DryRunReady' || operation.status === 'Confirmed'
+        statusIn(operation.status, ['Pending', 'DryRunReady', 'Confirmed', '待处理', '待确认', '处理中', '需人工复核'])
       ).length,
-      failedOperationRequests: operations.filter((operation) => operation.status === 'Failed').length,
+      failedOperationRequests: operations.filter((operation) => statusIn(operation.status, ['Failed', '失败'])).length,
       projectionFreshness: 'base_projection_read'
     },
     rooms
@@ -481,6 +539,189 @@ export async function pms_base_append_operation_log(
     status: 'created',
     updatedFields: Object.keys(createBusinessFields),
     projection: toBusinessRecord(created, binding)
+  };
+}
+
+export async function pms_base_upsert_housekeeping_task_projection(
+  request: PmsBaseUpsertHousekeepingTaskProjectionRequest,
+  deps: PmsBaseProjectionDeps
+): Promise<PmsBaseUpdateProjectionResult> {
+  const taskId = normalizeString(request.taskId);
+  if (!taskId) {
+    throw new PmsBaseProjectionError('invalid_payload', 'task_id_required');
+  }
+
+  return upsertProjectionByBusinessField({
+    deps,
+    bindingKey: 'housekeepingTasks',
+    uniqueBusinessField: 'taskId',
+    uniqueValue: taskId,
+    fields: request.fields,
+    duplicateCode: 'duplicate_housekeeping_task_id',
+    recordIdMissingCode: 'housekeeping_task_projection_record_id_missing',
+    operation: 'pms_base_upsert_housekeeping_task_projection'
+  });
+}
+
+export async function pms_base_upsert_maintenance_ticket_projection(
+  request: PmsBaseUpsertMaintenanceTicketProjectionRequest,
+  deps: PmsBaseProjectionDeps
+): Promise<PmsBaseUpdateProjectionResult> {
+  const ticketId = normalizeString(request.ticketId);
+  if (!ticketId) {
+    throw new PmsBaseProjectionError('invalid_payload', 'ticket_id_required');
+  }
+
+  return upsertProjectionByBusinessField({
+    deps,
+    bindingKey: 'maintenanceTickets',
+    uniqueBusinessField: 'ticketId',
+    uniqueValue: ticketId,
+    fields: request.fields,
+    duplicateCode: 'duplicate_maintenance_ticket_id',
+    recordIdMissingCode: 'maintenance_ticket_projection_record_id_missing',
+    operation: 'pms_base_upsert_maintenance_ticket_projection'
+  });
+}
+
+export async function pms_base_get_reservation_projection(
+  request: PmsBaseGetReservationProjectionRequest,
+  deps: PmsBaseProjectionDeps
+): Promise<PmsBaseReservationProjectionResult> {
+  const reservationCode = normalizeString(request.reservationCode);
+  if (!reservationCode) {
+    throw new PmsBaseProjectionError('invalid_payload', 'reservation_code_required');
+  }
+
+  const binding = requireBinding(deps.registry, 'reservations');
+  await assertSchemaFields(deps, binding, uniqueFields(['reservationCode', ...binding.requiredFields]));
+  const record = await findUniqueRecordByBusinessField(deps, binding, 'reservationCode', reservationCode, {
+    notFoundCode: 'reservation_projection_not_found',
+    duplicateCode: 'duplicate_reservation_code'
+  });
+
+  return {
+    operation: 'pms_base_get_reservation_projection',
+    schemaVersion: PMS_BASE_PROJECTION_SCHEMA_VERSION,
+    reservation: toBusinessRecord(record, binding),
+    projectionFreshness: 'Fresh'
+  };
+}
+
+export async function pms_base_upsert_reservation_projection(
+  request: PmsBaseUpsertReservationProjectionRequest,
+  deps: PmsBaseProjectionDeps
+): Promise<PmsBaseUpdateProjectionResult> {
+  const reservationCode = normalizeString(request.reservationCode);
+  if (!reservationCode) {
+    throw new PmsBaseProjectionError('invalid_payload', 'reservation_code_required');
+  }
+
+  return upsertProjectionByBusinessField({
+    deps,
+    bindingKey: 'reservations',
+    uniqueBusinessField: 'reservationCode',
+    uniqueValue: reservationCode,
+    fields: request.fields,
+    duplicateCode: 'duplicate_reservation_code',
+    recordIdMissingCode: 'reservation_projection_record_id_missing',
+    operation: 'pms_base_upsert_reservation_projection'
+  });
+}
+
+export async function pms_base_today_arrivals_projection(
+  request: PmsBaseTodayReservationsProjectionRequest,
+  deps: PmsBaseProjectionDeps
+): Promise<PmsBaseReservationListProjectionResult> {
+  return todayReservationsProjection('pms_base_today_arrivals_projection', 'arrivalDate', request, deps);
+}
+
+export async function pms_base_today_departures_projection(
+  request: PmsBaseTodayReservationsProjectionRequest,
+  deps: PmsBaseProjectionDeps
+): Promise<PmsBaseReservationListProjectionResult> {
+  return todayReservationsProjection('pms_base_today_departures_projection', 'departureDate', request, deps);
+}
+
+async function upsertProjectionByBusinessField(input: {
+  deps: PmsBaseProjectionDeps;
+  bindingKey: PmsBaseProjectionBindingKey;
+  uniqueBusinessField: string;
+  uniqueValue: string;
+  fields: Record<string, unknown>;
+  duplicateCode: string;
+  recordIdMissingCode: string;
+  operation: PmsBaseUpdateProjectionResult['operation'];
+}): Promise<PmsBaseUpdateProjectionResult> {
+  const binding = requireBinding(input.deps.registry, input.bindingKey);
+  const createBusinessFields = {
+    [input.uniqueBusinessField]: input.uniqueValue,
+    ...input.fields
+  };
+  await assertSchemaFields(input.deps, binding, uniqueFields([input.uniqueBusinessField, ...Object.keys(input.fields)]));
+  const existing = await findOptionalUniqueRecordByBusinessField(input.deps, binding, input.uniqueBusinessField, input.uniqueValue, {
+    duplicateCode: input.duplicateCode
+  });
+
+  if (existing) {
+    const updateBusinessFields = pickAllowedFields(binding.updateAllowedFields, input.fields);
+    const updateFields = mapUpdateFields(binding, updateBusinessFields);
+    const recordId = requireRecordId(existing, input.recordIdMissingCode);
+    const updated = await input.deps.bitableClient.updateRecord({
+      ...binding.target,
+      recordId,
+      fields: updateFields
+    });
+
+    return {
+      operation: input.operation,
+      schemaVersion: PMS_BASE_PROJECTION_SCHEMA_VERSION,
+      status: 'updated',
+      updatedFields: Object.keys(updateBusinessFields),
+      projection: toBusinessRecord(updated, binding)
+    };
+  }
+
+  const createFields = mapCreateFields(binding, createBusinessFields);
+  assertRequiredCreateFields(binding, createBusinessFields);
+  const created = await input.deps.bitableClient.createRecord({
+    ...binding.target,
+    fields: createFields
+  });
+
+  return {
+    operation: input.operation,
+    schemaVersion: PMS_BASE_PROJECTION_SCHEMA_VERSION,
+    status: 'created',
+    updatedFields: Object.keys(createBusinessFields),
+    projection: toBusinessRecord(created, binding)
+  };
+}
+
+async function todayReservationsProjection(
+  operation: PmsBaseReservationListProjectionResult['operation'],
+  dateBusinessField: 'arrivalDate' | 'departureDate',
+  request: PmsBaseTodayReservationsProjectionRequest,
+  deps: PmsBaseProjectionDeps
+): Promise<PmsBaseReservationListProjectionResult> {
+  const businessDate = normalizeString(request.businessDate);
+  if (!businessDate) {
+    throw new PmsBaseProjectionError('invalid_payload', 'business_date_required');
+  }
+
+  const binding = requireBinding(deps.registry, 'reservations');
+  await assertSchemaFields(deps, binding, uniqueFields([dateBusinessField, ...binding.requiredFields]));
+  const records = await listAllRecords(deps, binding.target);
+  const reservations = records
+    .map((record) => toBusinessRecord(record, binding))
+    .filter((reservation) => sameBusinessDate(reservation[dateBusinessField], businessDate));
+
+  return {
+    operation,
+    schemaVersion: PMS_BASE_PROJECTION_SCHEMA_VERSION,
+    businessDate,
+    reservations,
+    projectionFreshness: 'Fresh'
   };
 }
 
@@ -816,7 +1057,7 @@ function mapCreateFields(
 }
 
 function toBitableCellValue(businessField: string, value: unknown): unknown {
-  if (/At$/.test(businessField) && typeof value === 'string') {
+  if (/(At|Date)$/.test(businessField) && typeof value === 'string') {
     const parsed = Date.parse(value);
     return Number.isNaN(parsed) ? value : parsed;
   }
@@ -865,12 +1106,37 @@ function fieldValueMatches(value: unknown, expectedValue: string): boolean {
   return false;
 }
 
+function statusIn(value: unknown, allowed: readonly string[]): boolean {
+  return typeof value === 'string' && allowed.includes(value);
+}
+
+function sameBusinessDate(value: unknown, businessDate: string): boolean {
+  const expected = businessDate.slice(0, 10);
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return new Date(value).toISOString().slice(0, 10) === expected;
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return false;
+    const parsed = Date.parse(trimmed);
+    return Number.isNaN(parsed) ? trimmed.slice(0, 10) === expected : new Date(parsed).toISOString().slice(0, 10) === expected;
+  }
+  return false;
+}
+
 function uniqueFields(values: string[]): string[] {
   return [...new Set(values)];
 }
 
 function isPmsBaseProjectionBindingKey(value: string): value is PmsBaseProjectionBindingKey {
-  return value === 'roomLedger' || value === 'operationRequests' || value === 'operationLogs';
+  return (
+    value === 'roomLedger' ||
+    value === 'operationRequests' ||
+    value === 'housekeepingTasks' ||
+    value === 'maintenanceTickets' ||
+    value === 'reservations' ||
+    value === 'operationLogs'
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -101,44 +101,30 @@ describe('documentation boundary freeze', () => {
     expect(formRunbook).toContain('HOUSEKEEPING_DONE');
   });
 
-  it('keeps the PMS Base setup contract complete enough for sandbox creation', () => {
-    for (const tableName of [
-      'Room Ledger',
-      'PMS Operation Requests',
-      'Housekeeping Tasks',
-      'Maintenance Tickets',
-      'Reservations',
-      'Operation Logs',
-      'Inventory Calendar'
-    ]) {
-      expect(pmsBaseSetupRunbook).toContain(tableName);
-    }
-
-    for (const viewName of [
-      'Frontdesk Room Wall',
-      'Today Arrivals',
-      'Today Departures',
-      'Sellable Rooms',
-      'Dirty Rooms',
-      'Inspection Queue',
-      'Cleaning In Progress',
-      'Maintenance Stop-Sell',
-      'Exceptions'
-    ]) {
-      expect(pmsBaseSetupRunbook).toContain(viewName);
-    }
-
+  it('keeps PMS Base schema ownership delegated to pms-platform', () => {
     for (const requiredAnchor of [
-      'GuestDisplayName',
-      'PhoneLast4',
-      'PayloadJSON',
-      'ResultJSON',
-      'target_not_allowed_for_managed_form',
-      'field_not_mapped:<name>',
-      'fixed_field_conflict:Source/Ingress/Action/SchemaVersion',
-      'adapter-feishu` only writes records through the existing `/providers/form-webhook` managed `formKey` route'
+      '/home/peng/dt-git/github/pms-platform/packages/provisioning/src/index.ts',
+      '/home/peng/dt-git/github/pms-platform/docs/pms-base-provisioning-v1.md',
+      'PmsBaseProvisioningSpec',
+      'createSmallHotelPmsBaseProvisioningSpec()',
+      'ADAPTER_FEISHU_PMS_BASE_REGISTRY_PATH',
+      'pms_base_dashboard_projection',
+      'pms_base_upsert_operation_request',
+      'pms_base_today_departures_projection',
+      'It does **not** own the PMS Base table schema',
+      'Tracked example registry files are placeholders only'
     ]) {
       expect(pmsBaseSetupRunbook).toContain(requiredAnchor);
+    }
+
+    for (const oldSchemaAnchor of [
+      '### 3.1 `Room Ledger`',
+      '### 3.2 `PMS Operation Requests`',
+      'Frontdesk Room Wall',
+      'GuestDisplayName',
+      'PhoneLast4'
+    ]) {
+      expect(pmsBaseSetupRunbook).not.toContain(oldSchemaAnchor);
     }
 
     expect(pmsBaseSetupRunbook).not.toContain('app_secret');

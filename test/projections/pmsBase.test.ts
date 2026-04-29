@@ -4,8 +4,14 @@ import {
   parsePmsBaseProjectionRegistry,
   pms_base_dashboard_projection,
   pms_base_get_room_projection,
+  pms_base_get_reservation_projection,
   pms_base_append_operation_log,
+  pms_base_today_arrivals_projection,
+  pms_base_today_departures_projection,
+  pms_base_upsert_housekeeping_task_projection,
+  pms_base_upsert_maintenance_ticket_projection,
   pms_base_upsert_operation_request,
+  pms_base_upsert_reservation_projection,
   pms_base_upsert_room_projection,
   pms_base_update_operation_result,
   pms_base_update_room_projection,
@@ -172,6 +178,167 @@ function createClient(options: {
       fields: request.fields
     });
   });
+
+  return {
+    registry,
+    bitableClient: {
+      createRecord,
+      listTableFields,
+      listRecords,
+      updateRecord
+    }
+  };
+}
+
+function createChineseRegistry(): PmsBaseProjectionRegistry {
+  return parsePmsBaseProjectionRegistry({
+    version: 1,
+    policy: {
+      validateSchemaByDefault: true,
+      rejectUnmappedFields: true
+    },
+    bindings: {
+      roomLedger: {
+        enabled: true,
+        target: { appToken: 'app_token_pms', tableId: 'room_table' },
+        fieldMap: {
+          roomNumber: '房号',
+          roomType: '房型',
+          occupancyStatus: '入住状态',
+          cleaningStatus: '清洁状态',
+          sellableStatus: '可售状态',
+          roomCode: '房态码',
+          lastOperator: '最后操作人',
+          lastReason: '最后原因',
+          lastUpdatedAt: '更新时间'
+        },
+        requiredFields: ['roomNumber', 'roomType', 'occupancyStatus', 'cleaningStatus', 'sellableStatus', 'roomCode', 'lastOperator', 'lastReason', 'lastUpdatedAt'],
+        updateAllowedFields: ['occupancyStatus', 'cleaningStatus', 'sellableStatus', 'roomCode', 'lastOperator', 'lastReason', 'lastUpdatedAt']
+      },
+      operationRequests: {
+        enabled: true,
+        target: { appToken: 'app_token_pms', tableId: 'operation_table' },
+        fieldMap: {
+          clientToken: '请求令牌',
+          action: '操作类型',
+          status: '操作状态',
+          roomNumber: '房号',
+          operator: '操作人',
+          reason: '原因',
+          requestedAt: '请求时间',
+          payloadJSON: '请求JSON',
+          resultJSON: '结果JSON',
+          schemaVersion: '版本'
+        },
+        requiredFields: ['clientToken', 'action', 'status', 'roomNumber', 'operator', 'reason', 'requestedAt', 'schemaVersion'],
+        updateAllowedFields: ['status', 'resultJSON', 'schemaVersion']
+      },
+      housekeepingTasks: {
+        enabled: true,
+        target: { appToken: 'app_token_pms', tableId: 'housekeeping_table' },
+        fieldMap: {
+          taskId: '任务ID',
+          roomNumber: '房号',
+          kind: '任务类型',
+          status: '任务状态',
+          reason: '原因',
+          correlationId: '关联ID',
+          createdAt: '创建时间',
+          completedAt: '完成时间',
+          schemaVersion: '版本'
+        },
+        requiredFields: ['taskId', 'roomNumber', 'kind', 'status', 'reason', 'correlationId', 'createdAt', 'schemaVersion'],
+        updateAllowedFields: ['status', 'reason', 'completedAt', 'schemaVersion']
+      },
+      maintenanceTickets: {
+        enabled: true,
+        target: { appToken: 'app_token_pms', tableId: 'maintenance_table' },
+        fieldMap: {
+          ticketId: '工单ID',
+          roomNumber: '房号',
+          status: '工单状态',
+          severity: '严重级别',
+          stopSellRequested: '是否停售',
+          reason: '维修备注',
+          correlationId: '关联ID',
+          createdAt: '创建时间',
+          resolvedAt: '完成时间',
+          schemaVersion: '版本'
+        },
+        requiredFields: ['ticketId', 'roomNumber', 'status', 'severity', 'stopSellRequested', 'reason', 'correlationId', 'createdAt', 'schemaVersion'],
+        updateAllowedFields: ['status', 'resolvedAt', 'schemaVersion']
+      },
+      reservations: {
+        enabled: true,
+        target: { appToken: 'app_token_pms', tableId: 'reservation_table' },
+        fieldMap: {
+          reservationCode: '预订号',
+          roomNumber: '房号',
+          guestLabel: '客人',
+          arrivalDate: '到店日期',
+          departureDate: '离店日期',
+          status: '预订状态',
+          schemaVersion: '版本'
+        },
+        requiredFields: ['reservationCode', 'guestLabel', 'arrivalDate', 'departureDate', 'status', 'schemaVersion'],
+        updateAllowedFields: ['roomNumber', 'guestLabel', 'arrivalDate', 'departureDate', 'status', 'schemaVersion']
+      },
+      operationLogs: {
+        enabled: true,
+        target: { appToken: 'app_token_pms', tableId: 'operation_log_table' },
+        fieldMap: {
+          auditId: '审计ID',
+          commandType: '操作类型',
+          roomNumber: '房号',
+          actor: '操作人',
+          source: '来源',
+          reason: '原因',
+          idempotencyKey: '幂等键',
+          correlationId: '关联ID',
+          occurredAt: '发生时间',
+          domainEventTypes: '领域事件',
+          payloadJSON: '载荷JSON',
+          schemaVersion: '版本'
+        },
+        requiredFields: ['auditId', 'commandType', 'roomNumber', 'actor', 'source', 'reason', 'idempotencyKey', 'correlationId', 'occurredAt', 'domainEventTypes', 'schemaVersion'],
+        updateAllowedFields: []
+      }
+    }
+  });
+}
+
+function createChineseClient(options: {
+  housekeepingTasks?: Array<{ recordId?: string; fields: Record<string, unknown> }>;
+  maintenanceTickets?: Array<{ recordId?: string; fields: Record<string, unknown> }>;
+  reservations?: Array<{ recordId?: string; fields: Record<string, unknown> }>;
+  createRecord?: ReturnType<typeof vi.fn>;
+  updateRecord?: ReturnType<typeof vi.fn>;
+} = {}) {
+  const registry = createChineseRegistry();
+  const fieldNamesByTable = new Map(
+    Object.values(registry.bindings).map((binding) => [binding.target.tableId, Object.values(binding.fieldMap)])
+  );
+  const recordsByTable = new Map<string, Array<{ recordId?: string; fields: Record<string, unknown> }>>([
+    ['housekeeping_table', options.housekeepingTasks ?? []],
+    ['maintenance_table', options.maintenanceTickets ?? []],
+    ['reservation_table', options.reservations ?? []]
+  ]);
+  const listTableFields = vi.fn().mockImplementation(({ tableId }: { tableId: string }) => Promise.resolve({
+    items: (fieldNamesByTable.get(tableId) ?? []).map((fieldName) => ({ fieldName })),
+    hasMore: false
+  }));
+  const listRecords = vi.fn().mockImplementation(({ tableId }: { tableId: string }) => Promise.resolve({
+    items: recordsByTable.get(tableId) ?? [],
+    hasMore: false
+  }));
+  const updateRecord = options.updateRecord ?? vi.fn().mockImplementation((request) => Promise.resolve({
+    recordId: request.recordId,
+    fields: request.fields
+  }));
+  const createRecord = options.createRecord ?? vi.fn().mockImplementation((request) => Promise.resolve({
+    recordId: 'rec_created',
+    fields: request.fields
+  }));
 
   return {
     registry,
@@ -634,6 +801,214 @@ describe('PMS Base projection wrappers', () => {
         DomainEventTypes: 'RoomCheckedIn',
         PayloadJSON: '{"ok":true}',
         SchemaVersion: PMS_BASE_PROJECTION_SCHEMA_VERSION
+      }
+    });
+  });
+
+  it('upserts Chinese housekeeping task and maintenance ticket projections through controlled wrappers', async () => {
+    const createRecord = vi.fn().mockImplementation((request) => Promise.resolve({
+      recordId: 'rec_created',
+      fields: request.fields
+    }));
+    const { registry, bitableClient } = createChineseClient({ createRecord });
+
+    const task = await pms_base_upsert_housekeeping_task_projection(
+      {
+        taskId: 'task-A1',
+        fields: {
+          roomNumber: 'A1',
+          kind: 'room-cleaning',
+          status: '待查',
+          reason: 'A1 已打扫完成，需要验房',
+          correlationId: 'corr-housekeeping-A1',
+          createdAt: '2026-04-28T00:00:00.000Z',
+          schemaVersion: PMS_BASE_PROJECTION_SCHEMA_VERSION
+        }
+      },
+      { registry, bitableClient }
+    );
+    const ticket = await pms_base_upsert_maintenance_ticket_projection(
+      {
+        ticketId: 'ticket-A2',
+        fields: {
+          roomNumber: 'A2',
+          status: '待处理',
+          severity: 'StopSell',
+          stopSellRequested: '是',
+          reason: '空调故障，需要停售',
+          correlationId: 'corr-maintenance-A2',
+          createdAt: '2026-04-28T00:00:00.000Z',
+          schemaVersion: PMS_BASE_PROJECTION_SCHEMA_VERSION
+        }
+      },
+      { registry, bitableClient }
+    );
+
+    expect(task).toMatchObject({
+      operation: 'pms_base_upsert_housekeeping_task_projection',
+      status: 'created',
+      projection: {
+        taskId: 'task-A1',
+        roomNumber: 'A1',
+        status: '待查'
+      }
+    });
+    expect(ticket).toMatchObject({
+      operation: 'pms_base_upsert_maintenance_ticket_projection',
+      status: 'created',
+      projection: {
+        ticketId: 'ticket-A2',
+        roomNumber: 'A2',
+        stopSellRequested: '是'
+      }
+    });
+    expect(createRecord).toHaveBeenNthCalledWith(1, {
+      appToken: 'app_token_pms',
+      tableId: 'housekeeping_table',
+      fields: {
+        任务ID: 'task-A1',
+        房号: 'A1',
+        任务类型: 'room-cleaning',
+        任务状态: '待查',
+        原因: 'A1 已打扫完成，需要验房',
+        关联ID: 'corr-housekeeping-A1',
+        创建时间: 1777334400000,
+        版本: PMS_BASE_PROJECTION_SCHEMA_VERSION
+      }
+    });
+    expect(createRecord).toHaveBeenNthCalledWith(2, {
+      appToken: 'app_token_pms',
+      tableId: 'maintenance_table',
+      fields: {
+        工单ID: 'ticket-A2',
+        房号: 'A2',
+        工单状态: '待处理',
+        严重级别: 'StopSell',
+        是否停售: '是',
+        维修备注: '空调故障，需要停售',
+        关联ID: 'corr-maintenance-A2',
+        创建时间: 1777334400000,
+        版本: PMS_BASE_PROJECTION_SCHEMA_VERSION
+      }
+    });
+  });
+
+  it('reads reservations from Chinese Base projections without write calls', async () => {
+    const { registry, bitableClient } = createChineseClient({
+      reservations: [
+        {
+          recordId: 'rec_reservation_1',
+          fields: {
+            预订号: 'R-A1',
+            房号: 'A1',
+            客人: 'Guest A',
+            到店日期: '2026-04-28T08:00:00.000Z',
+            离店日期: '2026-04-30T04:00:00.000Z',
+            预订状态: '已预订',
+            版本: PMS_BASE_PROJECTION_SCHEMA_VERSION
+          }
+        },
+        {
+          recordId: 'rec_reservation_2',
+          fields: {
+            预订号: 'R-A2',
+            房号: 'A2',
+            客人: 'Guest B',
+            到店日期: '2026-04-29T08:00:00.000Z',
+            离店日期: '2026-04-28T04:00:00.000Z',
+            预订状态: '已预订',
+            版本: PMS_BASE_PROJECTION_SCHEMA_VERSION
+          }
+        }
+      ]
+    });
+
+    const reservation = await pms_base_get_reservation_projection(
+      { reservationCode: 'R-A1' },
+      { registry, bitableClient }
+    );
+    const arrivals = await pms_base_today_arrivals_projection(
+      { businessDate: '2026-04-28' },
+      { registry, bitableClient }
+    );
+    const departures = await pms_base_today_departures_projection(
+      { businessDate: '2026-04-28' },
+      { registry, bitableClient }
+    );
+
+    expect(reservation.reservation).toMatchObject({
+      reservationCode: 'R-A1',
+      roomNumber: 'A1',
+      guestLabel: 'Guest A'
+    });
+    expect(arrivals.reservations.map((item) => item.reservationCode)).toEqual(['R-A1']);
+    expect(departures.reservations.map((item) => item.reservationCode)).toEqual(['R-A2']);
+    expect(bitableClient.createRecord).not.toHaveBeenCalled();
+    expect(bitableClient.updateRecord).not.toHaveBeenCalled();
+  });
+
+  it('upserts reservation projections by reservationCode', async () => {
+    const existingClient = createChineseClient({
+      reservations: [
+        {
+          recordId: 'rec_reservation_existing',
+          fields: {
+            预订号: 'R-200',
+            房号: 'A1',
+            客人: 'Guest A',
+            到店日期: Date.parse('2026-04-28T00:00:00.000Z'),
+            离店日期: Date.parse('2026-04-29T00:00:00.000Z'),
+            预订状态: '已预订',
+            版本: PMS_BASE_PROJECTION_SCHEMA_VERSION
+          }
+        }
+      ]
+    });
+    const registry = createChineseRegistry();
+
+    const updated = await pms_base_upsert_reservation_projection(
+      {
+        reservationCode: 'R-200',
+        fields: {
+          roomNumber: 'A2',
+          status: '已入住',
+          schemaVersion: PMS_BASE_PROJECTION_SCHEMA_VERSION
+        }
+      },
+      { registry, bitableClient: existingClient.bitableClient }
+    );
+    expect(updated).toMatchObject({
+      operation: 'pms_base_upsert_reservation_projection',
+      status: 'updated',
+      projection: {
+        roomNumber: 'A2',
+        status: '已入住'
+      }
+    });
+
+    const createdClient = createChineseClient();
+    const created = await pms_base_upsert_reservation_projection(
+      {
+        reservationCode: 'R-201',
+        fields: {
+          roomNumber: 'B1',
+          guestLabel: 'Guest B',
+          arrivalDate: '2026-04-29T00:00:00.000Z',
+          departureDate: '2026-04-30T00:00:00.000Z',
+          status: '已预订',
+          schemaVersion: PMS_BASE_PROJECTION_SCHEMA_VERSION
+        }
+      },
+      { registry, bitableClient: createdClient.bitableClient }
+    );
+    expect(created).toMatchObject({
+      operation: 'pms_base_upsert_reservation_projection',
+      status: 'created',
+      projection: {
+        reservationCode: 'R-201',
+        roomNumber: 'B1',
+        guestLabel: 'Guest B',
+        status: '已预订'
       }
     });
   });

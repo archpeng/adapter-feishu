@@ -44,6 +44,21 @@ function createRegistry() {
         requiredFields: ['clientToken', 'action', 'status', 'roomNumber', 'operator', 'reason', 'requestedAt'],
         updateAllowedFields: ['status', 'resultJSON']
       },
+      reservations: {
+        enabled: true,
+        target: { appToken: 'app_token_pms', tableId: 'reservation_table' },
+        fieldMap: {
+          reservationCode: 'ReservationCode',
+          roomNumber: 'RoomNumber',
+          guestLabel: 'GuestLabel',
+          arrivalDate: 'ArrivalDate',
+          departureDate: 'DepartureDate',
+          status: 'Status',
+          schemaVersion: 'SchemaVersion'
+        },
+        requiredFields: ['reservationCode', 'guestLabel', 'arrivalDate', 'departureDate', 'status', 'schemaVersion'],
+        updateAllowedFields: ['roomNumber', 'guestLabel', 'arrivalDate', 'departureDate', 'status', 'schemaVersion']
+      },
       operationLogs: {
         enabled: true,
         target: { appToken: 'app_token_pms', tableId: 'operation_log_table' },
@@ -357,6 +372,57 @@ describe('dispatchPmsBaseProjectionRequest', () => {
         LastOperator: 'Sandbox Operator',
         LastReason: 'PMS CHECK_OUT confirmed',
         LastUpdatedAt: 1777334400000
+      }
+    });
+  });
+
+  it('upserts reservation rows through pms-base dispatch by reservationCode', async () => {
+    const bitableClient = createClient();
+
+    const response = await dispatchPmsBaseProjectionRequest(
+      {
+        method: 'POST',
+        pathname: '/providers/pms-base',
+        headers: {
+          authorization: 'Bearer pms-base-token-1'
+        },
+        rawBody: JSON.stringify({
+          operation: 'pms_base_upsert_reservation_projection',
+          reservationCode: 'R-1001',
+          fields: {
+            roomNumber: '1001',
+            guestLabel: 'Guest A',
+            arrivalDate: '2026-04-29T00:00:00.000Z',
+            departureDate: '2026-04-30T00:00:00.000Z',
+            status: 'Booked',
+            schemaVersion: 'pms-dashboard-mvp-v1'
+          }
+        })
+      },
+      {
+        bitableClient,
+        registry: createRegistry(),
+        authToken: 'pms-base-token-1'
+      }
+    );
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toMatchObject({
+      code: 0,
+      operation: 'pms_base_upsert_reservation_projection',
+      status: 'created'
+    });
+    expect(bitableClient.createRecord).toHaveBeenCalledWith({
+      appToken: 'app_token_pms',
+      tableId: 'reservation_table',
+      fields: {
+        ReservationCode: 'R-1001',
+        RoomNumber: '1001',
+        GuestLabel: 'Guest A',
+        ArrivalDate: 1777420800000,
+        DepartureDate: 1777507200000,
+        Status: 'Booked',
+        SchemaVersion: 'pms-dashboard-mvp-v1'
       }
     });
   });

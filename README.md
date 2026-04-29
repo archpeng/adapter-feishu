@@ -63,6 +63,7 @@ Boundary anchors frozen for this repo:
 - long-term memory, governance brain, or incident ownership
 - pretending the repo is already a multi-tenant control plane
 - creating Base/table/form resources from adapter-feishu
+- owning the PMS Base table/view/form/field schema; the active schema SSOT lives in `pms-platform/packages/provisioning/src/index.ts`
 - full smart-form submission emulation, form patching, field auto-create, attachment upload, or cross-instance write serialization
 
 ## Current implementation state
