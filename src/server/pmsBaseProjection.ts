@@ -8,9 +8,11 @@ import {
   pms_base_dashboard_projection,
   pms_base_get_reservation_projection,
   pms_base_get_room_projection,
+  pms_base_prune_inventory_calendar_projection,
   pms_base_today_arrivals_projection,
   pms_base_today_departures_projection,
   pms_base_upsert_housekeeping_task_projection,
+  pms_base_upsert_inventory_calendar_projection,
   pms_base_upsert_maintenance_ticket_projection,
   pms_base_upsert_operation_request,
   pms_base_upsert_reservation_projection,
@@ -230,6 +232,34 @@ export async function dispatchPmsBaseProjectionRequest(
       }
       const result = await pms_base_upsert_reservation_projection(
         { reservationCode, fields },
+        { bitableClient: deps.bitableClient, registry: deps.registry, now: deps.now }
+      );
+      return { statusCode: 200, body: { code: 0, ...result } };
+    }
+
+    if (operation === 'pms_base_upsert_inventory_calendar_projection') {
+      const intervalKey = stringField(payload, 'intervalKey');
+      const fields = recordField(payload, 'fields');
+      if (!intervalKey || !fields) {
+        return invalidPayloadResponse([
+          ...(!intervalKey ? ['interval_key_required'] : []),
+          ...(!fields ? ['fields_required'] : [])
+        ]);
+      }
+      const result = await pms_base_upsert_inventory_calendar_projection(
+        { intervalKey, fields },
+        { bitableClient: deps.bitableClient, registry: deps.registry, now: deps.now }
+      );
+      return { statusCode: 200, body: { code: 0, ...result } };
+    }
+
+    if (operation === 'pms_base_prune_inventory_calendar_projection') {
+      const intervalKey = stringField(payload, 'intervalKey');
+      if (!intervalKey) {
+        return invalidPayloadResponse(['interval_key_required']);
+      }
+      const result = await pms_base_prune_inventory_calendar_projection(
+        { intervalKey, fields: recordField(payload, 'fields') },
         { bitableClient: deps.bitableClient, registry: deps.registry, now: deps.now }
       );
       return { statusCode: 200, body: { code: 0, ...result } };

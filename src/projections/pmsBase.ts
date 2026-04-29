@@ -14,6 +14,7 @@ export type PmsBaseProjectionBindingKey =
   | 'housekeepingTasks'
   | 'maintenanceTickets'
   | 'reservations'
+  | 'inventoryCalendar'
   | 'operationLogs';
 
 export interface PmsBaseProjectionBindingPolicy {
@@ -99,6 +100,16 @@ export interface PmsBaseUpsertReservationProjectionRequest {
   fields: Record<string, unknown>;
 }
 
+export interface PmsBaseUpsertInventoryCalendarProjectionRequest {
+  intervalKey: string;
+  fields: Record<string, unknown>;
+}
+
+export interface PmsBasePruneInventoryCalendarProjectionRequest {
+  intervalKey: string;
+  fields?: Record<string, unknown>;
+}
+
 export interface PmsBaseRoomProjectionResult {
   operation: 'pms_base_get_room_projection';
   schemaVersion: typeof PMS_BASE_PROJECTION_SCHEMA_VERSION;
@@ -136,9 +147,11 @@ export interface PmsBaseUpdateProjectionResult {
     | 'pms_base_append_operation_log'
     | 'pms_base_upsert_housekeeping_task_projection'
     | 'pms_base_upsert_maintenance_ticket_projection'
-    | 'pms_base_upsert_reservation_projection';
+    | 'pms_base_upsert_reservation_projection'
+    | 'pms_base_upsert_inventory_calendar_projection'
+    | 'pms_base_prune_inventory_calendar_projection';
   schemaVersion: typeof PMS_BASE_PROJECTION_SCHEMA_VERSION;
-  status: 'created' | 'updated';
+  status: 'created' | 'updated' | 'pruned';
   updatedFields: string[];
   projection: Record<string, unknown>;
 }
@@ -176,6 +189,7 @@ const ALL_BINDING_KEYS: PmsBaseProjectionBindingKey[] = [
   'housekeepingTasks',
   'maintenanceTickets',
   'reservations',
+  'inventoryCalendar',
   'operationLogs'
 ];
 const REQUIRED_BINDING_KEYS: PmsBaseProjectionBindingKey[] = ['roomLedger', 'operationRequests', 'operationLogs'];
@@ -629,6 +643,82 @@ export async function pms_base_upsert_reservation_projection(
   });
 }
 
+export async function pms_base_upsert_inventory_calendar_projection(
+  request: PmsBaseUpsertInventoryCalendarProjectionRequest,
+  deps: PmsBaseProjectionDeps
+): Promise<PmsBaseUpdateProjectionResult> {
+  const intervalKey = normalizeString(request.intervalKey);
+  if (!intervalKey) {
+    throw new PmsBaseProjectionError('invalid_payload', 'interval_key_required');
+  }
+
+  return upsertProjectionByBusinessField({
+    deps,
+    bindingKey: 'inventoryCalendar',
+    uniqueBusinessField: 'intervalKey',
+    uniqueValue: intervalKey,
+    fields: request.fields,
+    duplicateCode: 'duplicate_inventory_interval_key',
+    recordIdMissingCode: 'inventory_calendar_projection_record_id_missing',
+    operation: 'pms_base_upsert_inventory_calendar_projection'
+  });
+}
+
+export async function pms_base_prune_inventory_calendar_projection(
+  request: PmsBasePruneInventoryCalendarProjectionRequest,
+  deps: PmsBaseProjectionDeps
+): Promise<PmsBaseUpdateProjectionResult> {
+  const intervalKey = normalizeString(request.intervalKey);
+  if (!intervalKey) {
+    throw new PmsBaseProjectionError('invalid_payload', 'interval_key_required');
+  }
+
+  const binding = requireBinding(deps.registry, 'inventoryCalendar');
+  const basePruneFields = request.fields ?? {};
+  const prunedAt = basePruneFields.prunedAt ?? deps.now?.() ?? new Date().toISOString();
+  const pruneBusinessFields = {
+    ...basePruneFields,
+    projectionStatus: 'Pruned',
+    prunedAt,
+    schemaVersion: basePruneFields.schemaVersion ?? PMS_BASE_PROJECTION_SCHEMA_VERSION
+  };
+  await assertSchemaFields(deps, binding, uniqueFields(['intervalKey', ...Object.keys(pruneBusinessFields)]));
+  const existing = await findOptionalUniqueRecordByBusinessField(deps, binding, 'intervalKey', intervalKey, {
+    duplicateCode: 'duplicate_inventory_interval_key'
+  });
+
+  if (!existing) {
+    return {
+      operation: 'pms_base_prune_inventory_calendar_projection',
+      schemaVersion: PMS_BASE_PROJECTION_SCHEMA_VERSION,
+      status: 'pruned',
+      updatedFields: [],
+      projection: {
+        intervalKey,
+        projectionStatus: 'Pruned',
+        prunedAt,
+        schemaVersion: PMS_BASE_PROJECTION_SCHEMA_VERSION
+      }
+    };
+  }
+
+  const updateFields = mapUpdateFields(binding, pruneBusinessFields);
+  const recordId = requireRecordId(existing, 'inventory_calendar_projection_record_id_missing');
+  const updated = await deps.bitableClient.updateRecord({
+    ...binding.target,
+    recordId,
+    fields: updateFields
+  });
+
+  return {
+    operation: 'pms_base_prune_inventory_calendar_projection',
+    schemaVersion: PMS_BASE_PROJECTION_SCHEMA_VERSION,
+    status: 'pruned',
+    updatedFields: Object.keys(pruneBusinessFields),
+    projection: toBusinessRecord(updated, binding)
+  };
+}
+
 export async function pms_base_today_arrivals_projection(
   request: PmsBaseTodayReservationsProjectionRequest,
   deps: PmsBaseProjectionDeps
@@ -655,8 +745,8 @@ async function upsertProjectionByBusinessField(input: {
 }): Promise<PmsBaseUpdateProjectionResult> {
   const binding = requireBinding(input.deps.registry, input.bindingKey);
   const createBusinessFields = {
-    [input.uniqueBusinessField]: input.uniqueValue,
-    ...input.fields
+    ...input.fields,
+    [input.uniqueBusinessField]: input.uniqueValue
   };
   await assertSchemaFields(input.deps, binding, uniqueFields([input.uniqueBusinessField, ...Object.keys(input.fields)]));
   const existing = await findOptionalUniqueRecordByBusinessField(input.deps, binding, input.uniqueBusinessField, input.uniqueValue, {
@@ -1135,6 +1225,7 @@ function isPmsBaseProjectionBindingKey(value: string): value is PmsBaseProjectio
     value === 'housekeepingTasks' ||
     value === 'maintenanceTickets' ||
     value === 'reservations' ||
+    value === 'inventoryCalendar' ||
     value === 'operationLogs'
   );
 }

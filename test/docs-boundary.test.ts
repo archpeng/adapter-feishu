@@ -110,6 +110,8 @@ describe('documentation boundary freeze', () => {
       'ADAPTER_FEISHU_PMS_BASE_REGISTRY_PATH',
       'pms_base_dashboard_projection',
       'pms_base_upsert_operation_request',
+      'pms_base_upsert_inventory_calendar_projection',
+      'pms_base_prune_inventory_calendar_projection',
       'pms_base_today_departures_projection',
       'It does **not** own the PMS Base table schema',
       'Tracked example registry files are placeholders only'

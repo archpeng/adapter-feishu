@@ -59,6 +59,30 @@ function createRegistry() {
         requiredFields: ['reservationCode', 'guestLabel', 'arrivalDate', 'departureDate', 'status', 'schemaVersion'],
         updateAllowedFields: ['roomNumber', 'guestLabel', 'arrivalDate', 'departureDate', 'status', 'schemaVersion']
       },
+      inventoryCalendar: {
+        enabled: true,
+        target: { appToken: 'app_token_pms', tableId: 'inventory_table' },
+        fieldMap: {
+          intervalKey: 'IntervalKey',
+          propertyId: 'PropertyId',
+          roomId: 'RoomId',
+          roomNumber: 'RoomNumber',
+          roomTypeId: 'RoomTypeId',
+          roomType: 'RoomType',
+          startDate: 'StartDate',
+          endDate: 'EndDate',
+          calendarKind: 'CalendarKind',
+          sellableStatus: 'SellableStatus',
+          title: 'Title',
+          sourceRefsJSON: 'SourceRefsJSON',
+          projectionStatus: 'ProjectionStatus',
+          prunedAt: 'PrunedAt',
+          updatedAt: 'UpdatedAt',
+          schemaVersion: 'SchemaVersion'
+        },
+        requiredFields: ['intervalKey', 'propertyId', 'roomId', 'roomNumber', 'startDate', 'endDate', 'calendarKind', 'sellableStatus', 'title', 'sourceRefsJSON', 'projectionStatus', 'updatedAt', 'schemaVersion'],
+        updateAllowedFields: ['roomNumber', 'roomTypeId', 'roomType', 'startDate', 'endDate', 'calendarKind', 'sellableStatus', 'title', 'sourceRefsJSON', 'projectionStatus', 'prunedAt', 'updatedAt', 'schemaVersion']
+      },
       operationLogs: {
         enabled: true,
         target: { appToken: 'app_token_pms', tableId: 'operation_log_table' },
@@ -422,6 +446,125 @@ describe('dispatchPmsBaseProjectionRequest', () => {
         ArrivalDate: 1777420800000,
         DepartureDate: 1777507200000,
         Status: 'Booked',
+        SchemaVersion: 'pms-dashboard-mvp-v1'
+      }
+    });
+  });
+
+  it('upserts and prunes inventory calendar rows through pms-base dispatch', async () => {
+    const createRecord = vi.fn().mockImplementation((request) => Promise.resolve({
+      recordId: 'rec_inventory_created',
+      fields: request.fields
+    }));
+    const updateRecord = vi.fn().mockImplementation((request) => Promise.resolve({
+      recordId: request.recordId,
+      fields: {
+        IntervalKey: 'inventory-room-A2-2026-04-28-blocked',
+        ...request.fields
+      }
+    }));
+    const inventoryRecord = {
+      recordId: 'rec_inventory_existing',
+      fields: {
+        IntervalKey: 'inventory-room-A2-2026-04-28-blocked',
+        ProjectionStatus: 'Active'
+      }
+    };
+    const bitableClient = {
+      ...createClient(),
+      createRecord,
+      updateRecord,
+      listRecords: vi.fn().mockImplementation(({ tableId }: { tableId: string }) => Promise.resolve({
+        items: tableId === 'inventory_table' ? [] : [],
+        hasMore: false
+      }))
+    };
+
+    const upsertResponse = await dispatchPmsBaseProjectionRequest(
+      {
+        method: 'POST',
+        pathname: '/providers/pms-base',
+        headers: { authorization: 'Bearer pms-base-token-1' },
+        rawBody: JSON.stringify({
+          operation: 'pms_base_upsert_inventory_calendar_projection',
+          intervalKey: 'inventory-room-A2-2026-04-28-blocked',
+          fields: {
+            propertyId: 'property-small-hotel',
+            roomId: 'room-A2',
+            roomNumber: 'A2',
+            startDate: '2026-04-28',
+            endDate: '2026-04-29',
+            calendarKind: 'blocked',
+            sellableStatus: 'outOfOrder',
+            title: 'A2 blocked',
+            sourceRefsJSON: '[]',
+            projectionStatus: 'Active',
+            updatedAt: '2026-04-28T00:00:00.000Z',
+            schemaVersion: 'pms-dashboard-mvp-v1'
+          }
+        })
+      },
+      { bitableClient, registry: createRegistry(), authToken: 'pms-base-token-1' }
+    );
+
+    bitableClient.listRecords.mockImplementation(({ tableId }: { tableId: string }) => Promise.resolve({
+      items: tableId === 'inventory_table' ? [inventoryRecord] : [],
+      hasMore: false
+    }));
+    const pruneResponse = await dispatchPmsBaseProjectionRequest(
+      {
+        method: 'POST',
+        pathname: '/providers/pms-base',
+        headers: { authorization: 'Bearer pms-base-token-1' },
+        rawBody: JSON.stringify({
+          operation: 'pms_base_prune_inventory_calendar_projection',
+          intervalKey: 'inventory-room-A2-2026-04-28-blocked',
+          fields: { updatedAt: '2026-04-28T00:02:00.000Z' }
+        })
+      },
+      {
+        bitableClient,
+        registry: createRegistry(),
+        authToken: 'pms-base-token-1',
+        now: () => '2026-04-28T00:03:00.000Z'
+      }
+    );
+
+    expect(upsertResponse).toMatchObject({
+      statusCode: 200,
+      body: { code: 0, operation: 'pms_base_upsert_inventory_calendar_projection', status: 'created' }
+    });
+    expect(pruneResponse).toMatchObject({
+      statusCode: 200,
+      body: { code: 0, operation: 'pms_base_prune_inventory_calendar_projection', status: 'pruned' }
+    });
+    expect(createRecord).toHaveBeenCalledWith({
+      appToken: 'app_token_pms',
+      tableId: 'inventory_table',
+      fields: {
+        IntervalKey: 'inventory-room-A2-2026-04-28-blocked',
+        PropertyId: 'property-small-hotel',
+        RoomId: 'room-A2',
+        RoomNumber: 'A2',
+        StartDate: 1777334400000,
+        EndDate: 1777420800000,
+        CalendarKind: 'blocked',
+        SellableStatus: 'outOfOrder',
+        Title: 'A2 blocked',
+        SourceRefsJSON: '[]',
+        ProjectionStatus: 'Active',
+        UpdatedAt: 1777334400000,
+        SchemaVersion: 'pms-dashboard-mvp-v1'
+      }
+    });
+    expect(updateRecord).toHaveBeenCalledWith({
+      appToken: 'app_token_pms',
+      tableId: 'inventory_table',
+      recordId: 'rec_inventory_existing',
+      fields: {
+        UpdatedAt: 1777334520000,
+        ProjectionStatus: 'Pruned',
+        PrunedAt: 1777334580000,
         SchemaVersion: 'pms-dashboard-mvp-v1'
       }
     });

@@ -6,9 +6,11 @@ import {
   pms_base_get_room_projection,
   pms_base_get_reservation_projection,
   pms_base_append_operation_log,
+  pms_base_prune_inventory_calendar_projection,
   pms_base_today_arrivals_projection,
   pms_base_today_departures_projection,
   pms_base_upsert_housekeeping_task_projection,
+  pms_base_upsert_inventory_calendar_projection,
   pms_base_upsert_maintenance_ticket_projection,
   pms_base_upsert_operation_request,
   pms_base_upsert_reservation_projection,
@@ -283,6 +285,30 @@ function createChineseRegistry(): PmsBaseProjectionRegistry {
         requiredFields: ['reservationCode', 'guestLabel', 'arrivalDate', 'departureDate', 'status', 'schemaVersion'],
         updateAllowedFields: ['roomNumber', 'guestLabel', 'arrivalDate', 'departureDate', 'status', 'schemaVersion']
       },
+      inventoryCalendar: {
+        enabled: true,
+        target: { appToken: 'app_token_pms', tableId: 'inventory_table' },
+        fieldMap: {
+          intervalKey: '库存区间键',
+          propertyId: '门店ID',
+          roomId: '房间ID',
+          roomNumber: '房号',
+          roomTypeId: '房型ID',
+          roomType: '房型',
+          startDate: '开始日期',
+          endDate: '结束日期',
+          calendarKind: '日历状态',
+          sellableStatus: '可售状态',
+          title: '标题',
+          sourceRefsJSON: '来源JSON',
+          projectionStatus: '投影状态',
+          prunedAt: '剪枝时间',
+          updatedAt: '更新时间',
+          schemaVersion: '版本'
+        },
+        requiredFields: ['intervalKey', 'propertyId', 'roomId', 'roomNumber', 'startDate', 'endDate', 'calendarKind', 'sellableStatus', 'title', 'sourceRefsJSON', 'projectionStatus', 'updatedAt', 'schemaVersion'],
+        updateAllowedFields: ['roomNumber', 'roomTypeId', 'roomType', 'startDate', 'endDate', 'calendarKind', 'sellableStatus', 'title', 'sourceRefsJSON', 'projectionStatus', 'prunedAt', 'updatedAt', 'schemaVersion']
+      },
       operationLogs: {
         enabled: true,
         target: { appToken: 'app_token_pms', tableId: 'operation_log_table' },
@@ -311,6 +337,8 @@ function createChineseClient(options: {
   housekeepingTasks?: Array<{ recordId?: string; fields: Record<string, unknown> }>;
   maintenanceTickets?: Array<{ recordId?: string; fields: Record<string, unknown> }>;
   reservations?: Array<{ recordId?: string; fields: Record<string, unknown> }>;
+  inventoryCalendar?: Array<{ recordId?: string; fields: Record<string, unknown> }>;
+  missingFieldName?: string;
   createRecord?: ReturnType<typeof vi.fn>;
   updateRecord?: ReturnType<typeof vi.fn>;
 } = {}) {
@@ -321,10 +349,13 @@ function createChineseClient(options: {
   const recordsByTable = new Map<string, Array<{ recordId?: string; fields: Record<string, unknown> }>>([
     ['housekeeping_table', options.housekeepingTasks ?? []],
     ['maintenance_table', options.maintenanceTickets ?? []],
-    ['reservation_table', options.reservations ?? []]
+    ['reservation_table', options.reservations ?? []],
+    ['inventory_table', options.inventoryCalendar ?? []]
   ]);
   const listTableFields = vi.fn().mockImplementation(({ tableId }: { tableId: string }) => Promise.resolve({
-    items: (fieldNamesByTable.get(tableId) ?? []).map((fieldName) => ({ fieldName })),
+    items: (fieldNamesByTable.get(tableId) ?? [])
+      .filter((fieldName) => fieldName !== options.missingFieldName)
+      .map((fieldName) => ({ fieldName })),
     hasMore: false
   }));
   const listRecords = vi.fn().mockImplementation(({ tableId }: { tableId: string }) => Promise.resolve({
@@ -1011,6 +1042,187 @@ describe('PMS Base projection wrappers', () => {
         status: '已预订'
       }
     });
+  });
+
+  it('upserts and prunes inventory calendar projections by backend interval key', async () => {
+    const registry = createChineseRegistry();
+    const createRecord = vi.fn().mockImplementation((request) => Promise.resolve({
+      recordId: 'rec_inventory_created',
+      fields: request.fields
+    }));
+    const updateRecord = vi.fn().mockImplementation((request) => Promise.resolve({
+      recordId: request.recordId,
+      fields: {
+        库存区间键: 'inventory-room-A2-2026-04-28-blocked',
+        ...request.fields
+      }
+    }));
+
+    const createdClient = createChineseClient({ createRecord });
+    const created = await pms_base_upsert_inventory_calendar_projection(
+      {
+        intervalKey: 'inventory-room-A2-2026-04-28-blocked',
+        fields: {
+          propertyId: 'property-small-hotel',
+          roomId: 'room-A2',
+          roomNumber: 'A2',
+          roomTypeId: 'room-type-garden-villa',
+          roomType: '花园别墅',
+          startDate: '2026-04-28',
+          endDate: '2026-04-29',
+          calendarKind: 'blocked',
+          sellableStatus: 'outOfOrder',
+          title: 'A2 blocked',
+          sourceRefsJSON: '[{"sourceType":"inventory_block","sourceId":"block-ticket-A2"}]',
+          projectionStatus: 'Active',
+          updatedAt: '2026-04-28T00:00:00.000Z',
+          schemaVersion: PMS_BASE_PROJECTION_SCHEMA_VERSION
+        }
+      },
+      { registry, bitableClient: createdClient.bitableClient }
+    );
+
+    expect(created).toMatchObject({
+      operation: 'pms_base_upsert_inventory_calendar_projection',
+      status: 'created',
+      projection: {
+        intervalKey: 'inventory-room-A2-2026-04-28-blocked',
+        roomId: 'room-A2',
+        calendarKind: 'blocked'
+      }
+    });
+    expect(createRecord).toHaveBeenCalledWith({
+      appToken: 'app_token_pms',
+      tableId: 'inventory_table',
+      fields: {
+        库存区间键: 'inventory-room-A2-2026-04-28-blocked',
+        门店ID: 'property-small-hotel',
+        房间ID: 'room-A2',
+        房号: 'A2',
+        房型ID: 'room-type-garden-villa',
+        房型: '花园别墅',
+        开始日期: 1777334400000,
+        结束日期: 1777420800000,
+        日历状态: 'blocked',
+        可售状态: 'outOfOrder',
+        标题: 'A2 blocked',
+        来源JSON: '[{"sourceType":"inventory_block","sourceId":"block-ticket-A2"}]',
+        投影状态: 'Active',
+        更新时间: 1777334400000,
+        版本: PMS_BASE_PROJECTION_SCHEMA_VERSION
+      }
+    });
+
+    const existingClient = createChineseClient({
+      inventoryCalendar: [
+        {
+          recordId: 'rec_inventory_existing',
+          fields: {
+            库存区间键: 'inventory-room-A2-2026-04-28-blocked',
+            房号: 'A2',
+            日历状态: 'blocked',
+            投影状态: 'Active',
+            版本: PMS_BASE_PROJECTION_SCHEMA_VERSION
+          }
+        }
+      ],
+      updateRecord
+    });
+    const updated = await pms_base_upsert_inventory_calendar_projection(
+      {
+        intervalKey: 'inventory-room-A2-2026-04-28-blocked',
+        fields: {
+          calendarKind: 'available',
+          projectionStatus: 'Active',
+          updatedAt: '2026-04-28T00:01:00.000Z',
+          schemaVersion: PMS_BASE_PROJECTION_SCHEMA_VERSION
+        }
+      },
+      { registry, bitableClient: existingClient.bitableClient }
+    );
+    const pruned = await pms_base_prune_inventory_calendar_projection(
+      {
+        intervalKey: 'inventory-room-A2-2026-04-28-blocked',
+        fields: { updatedAt: '2026-04-28T00:02:00.000Z' }
+      },
+      {
+        registry,
+        bitableClient: existingClient.bitableClient,
+        now: () => '2026-04-28T00:03:00.000Z'
+      }
+    );
+
+    expect(updated).toMatchObject({ operation: 'pms_base_upsert_inventory_calendar_projection', status: 'updated' });
+    expect(pruned).toMatchObject({ operation: 'pms_base_prune_inventory_calendar_projection', status: 'pruned' });
+    expect(updateRecord).toHaveBeenNthCalledWith(1, {
+      appToken: 'app_token_pms',
+      tableId: 'inventory_table',
+      recordId: 'rec_inventory_existing',
+      fields: {
+        日历状态: 'available',
+        投影状态: 'Active',
+        更新时间: 1777334460000,
+        版本: PMS_BASE_PROJECTION_SCHEMA_VERSION
+      }
+    });
+    expect(updateRecord).toHaveBeenNthCalledWith(2, {
+      appToken: 'app_token_pms',
+      tableId: 'inventory_table',
+      recordId: 'rec_inventory_existing',
+      fields: {
+        更新时间: 1777334520000,
+        投影状态: 'Pruned',
+        剪枝时间: 1777334580000,
+        版本: PMS_BASE_PROJECTION_SCHEMA_VERSION
+      }
+    });
+  });
+
+  it('rejects inventory calendar schema drift, unmapped fields, and duplicate interval keys', async () => {
+    const registry = createChineseRegistry();
+    const validFields = {
+      propertyId: 'property-small-hotel',
+      roomId: 'room-A2',
+      roomNumber: 'A2',
+      startDate: '2026-04-28',
+      endDate: '2026-04-29',
+      calendarKind: 'blocked',
+      sellableStatus: 'outOfOrder',
+      title: 'A2 blocked',
+      sourceRefsJSON: '[]',
+      projectionStatus: 'Active',
+      updatedAt: '2026-04-28T00:00:00.000Z',
+      schemaVersion: PMS_BASE_PROJECTION_SCHEMA_VERSION
+    };
+
+    await expect(
+      pms_base_upsert_inventory_calendar_projection(
+        { intervalKey: 'inventory-A2', fields: { ...validFields, appToken: 'not allowed' } },
+        { registry, bitableClient: createChineseClient().bitableClient }
+      )
+    ).rejects.toThrow(/schema_mapping_missing:inventoryCalendar:appToken/);
+
+    await expect(
+      pms_base_upsert_inventory_calendar_projection(
+        { intervalKey: 'inventory-A2', fields: validFields },
+        { registry, bitableClient: createChineseClient({ missingFieldName: '日历状态' }).bitableClient }
+      )
+    ).rejects.toThrow(/schema_field_missing:inventoryCalendar:calendarKind/);
+
+    await expect(
+      pms_base_prune_inventory_calendar_projection(
+        { intervalKey: 'inventory-A2' },
+        {
+          registry,
+          bitableClient: createChineseClient({
+            inventoryCalendar: [
+              { recordId: 'rec_inventory_1', fields: { 库存区间键: 'inventory-A2' } },
+              { recordId: 'rec_inventory_2', fields: { 库存区间键: 'inventory-A2' } }
+            ]
+          }).bitableClient
+        }
+      )
+    ).rejects.toThrow(/duplicate_inventory_interval_key/);
   });
 
   it('rejects schema drift instead of silently coercing missing fields', async () => {

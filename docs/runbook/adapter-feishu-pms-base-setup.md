@@ -40,6 +40,8 @@ Use these PMS-owned symbols as the schema contract:
    - `pms_base_upsert_maintenance_ticket_projection`
    - `pms_base_get_reservation_projection`
    - `pms_base_upsert_reservation_projection`
+   - `pms_base_upsert_inventory_calendar_projection`
+   - `pms_base_prune_inventory_calendar_projection`
    - `pms_base_today_arrivals_projection`
    - `pms_base_today_departures_projection`
 
@@ -72,7 +74,7 @@ Before starting `adapter-feishu` PMS Base projection runtime:
 3. Set `ADAPTER_FEISHU_PMS_BASE_WEBHOOK_AUTH_TOKEN`.
 4. Ensure the Feishu app has permission to read fields, list records, create records, and update records for the target Base tables.
 5. Run a registry mount probe without printing raw target values.
-6. Run targeted wrapper probes for dashboard, room, operation request, room update, and operation log paths.
+6. Run targeted wrapper probes for dashboard, room, operation request, room update, inventory calendar upsert/prune, and operation log paths.
 
 ## 5. Stable failure expectations
 

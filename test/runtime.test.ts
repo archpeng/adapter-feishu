@@ -205,6 +205,7 @@ describe('createAdapterRuntime', () => {
 
     expect(runtime.pmsBaseProjectionRegistry?.bindings.roomLedger.fieldMap.roomNumber).toBe('房号');
     expect(runtime.pmsBaseProjectionRegistry?.bindings.operationRequests.updateAllowedFields).toContain('resultJSON');
+    expect(runtime.pmsBaseProjectionRegistry?.bindings.inventoryCalendar.fieldMap.intervalKey).toBe('库存区间键');
   });
 
   it('fails fast when configured managed form registry cannot be loaded or parsed', () => {

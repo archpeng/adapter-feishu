@@ -185,6 +185,61 @@
         "schemaVersion"
       ]
     },
+    "inventoryCalendar": {
+      "enabled": true,
+      "target": {
+        "appToken": "example_pms_base_app_token",
+        "tableId": "example_inventory_calendar_table"
+      },
+      "fieldMap": {
+        "intervalKey": "库存区间键",
+        "propertyId": "门店ID",
+        "roomId": "房间ID",
+        "roomNumber": "房号",
+        "roomTypeId": "房型ID",
+        "roomType": "房型",
+        "startDate": "开始日期",
+        "endDate": "结束日期",
+        "calendarKind": "日历状态",
+        "sellableStatus": "可售状态",
+        "title": "标题",
+        "sourceRefsJSON": "来源JSON",
+        "projectionStatus": "投影状态",
+        "prunedAt": "剪枝时间",
+        "updatedAt": "更新时间",
+        "schemaVersion": "版本"
+      },
+      "requiredFields": [
+        "intervalKey",
+        "propertyId",
+        "roomId",
+        "roomNumber",
+        "startDate",
+        "endDate",
+        "calendarKind",
+        "sellableStatus",
+        "title",
+        "sourceRefsJSON",
+        "projectionStatus",
+        "updatedAt",
+        "schemaVersion"
+      ],
+      "updateAllowedFields": [
+        "roomNumber",
+        "roomTypeId",
+        "roomType",
+        "startDate",
+        "endDate",
+        "calendarKind",
+        "sellableStatus",
+        "title",
+        "sourceRefsJSON",
+        "projectionStatus",
+        "prunedAt",
+        "updatedAt",
+        "schemaVersion"
+      ]
+    },
     "operationLogs": {
       "enabled": true,
       "target": {
