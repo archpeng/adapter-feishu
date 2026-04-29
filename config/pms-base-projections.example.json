@@ -12,6 +12,7 @@
         "tableId": "example_room_ledger_table"
       },
       "fieldMap": {
+        "backendId": "后端ID",
         "roomNumber": "房号",
         "roomType": "房型",
         "occupancyStatus": "入住状态",
@@ -37,6 +38,7 @@
         "lastUpdatedAt"
       ],
       "updateAllowedFields": [
+        "backendId",
         "roomType",
         "occupancyStatus",
         "cleaningStatus",
@@ -57,6 +59,7 @@
         "tableId": "example_operation_requests_table"
       },
       "fieldMap": {
+        "backendId": "后端ID",
         "clientToken": "请求令牌",
         "action": "操作类型",
         "status": "操作状态",
@@ -79,6 +82,7 @@
         "schemaVersion"
       ],
       "updateAllowedFields": [
+        "backendId",
         "status",
         "resultJSON",
         "schemaVersion"
@@ -91,8 +95,10 @@
         "tableId": "example_housekeeping_tasks_table"
       },
       "fieldMap": {
+        "backendId": "后端ID",
         "taskId": "任务ID",
         "roomNumber": "房号",
+        "relatedRoom": "关联房间",
         "kind": "任务类型",
         "status": "任务状态",
         "reason": "原因",
@@ -112,6 +118,8 @@
         "schemaVersion"
       ],
       "updateAllowedFields": [
+        "backendId",
+        "relatedRoom",
         "status",
         "reason",
         "completedAt",
@@ -125,8 +133,10 @@
         "tableId": "example_maintenance_tickets_table"
       },
       "fieldMap": {
+        "backendId": "后端ID",
         "ticketId": "工单ID",
         "roomNumber": "房号",
+        "relatedRoom": "关联房间",
         "status": "工单状态",
         "severity": "严重级别",
         "stopSellRequested": "是否停售",
@@ -148,6 +158,8 @@
         "schemaVersion"
       ],
       "updateAllowedFields": [
+        "backendId",
+        "relatedRoom",
         "status",
         "resolvedAt",
         "schemaVersion"
@@ -160,8 +172,10 @@
         "tableId": "example_reservations_table"
       },
       "fieldMap": {
+        "backendId": "后端ID",
         "reservationCode": "预订号",
         "roomNumber": "房号",
+        "relatedRoom": "关联房间",
         "guestLabel": "客人",
         "arrivalDate": "到店日期",
         "departureDate": "离店日期",
@@ -177,6 +191,8 @@
         "schemaVersion"
       ],
       "updateAllowedFields": [
+        "backendId",
+        "relatedRoom",
         "roomNumber",
         "guestLabel",
         "arrivalDate",
@@ -192,10 +208,12 @@
         "tableId": "example_inventory_calendar_table"
       },
       "fieldMap": {
+        "backendId": "后端ID",
         "intervalKey": "库存区间键",
         "propertyId": "门店ID",
         "roomId": "房间ID",
         "roomNumber": "房号",
+        "relatedRoom": "关联房间",
         "roomTypeId": "房型ID",
         "roomType": "房型",
         "startDate": "开始日期",
@@ -225,6 +243,8 @@
         "schemaVersion"
       ],
       "updateAllowedFields": [
+        "backendId",
+        "relatedRoom",
         "roomNumber",
         "roomTypeId",
         "roomType",
@@ -247,9 +267,12 @@
         "tableId": "example_operation_logs_table"
       },
       "fieldMap": {
+        "backendId": "后端ID",
         "auditId": "审计ID",
         "commandType": "操作类型",
         "roomNumber": "房号",
+        "relatedRoom": "关联房间",
+        "relatedOperationRequest": "关联操作请求",
         "actor": "操作人",
         "source": "来源",
         "reason": "原因",
@@ -274,6 +297,43 @@
         "schemaVersion"
       ],
       "updateAllowedFields": []
+    },
+    "projectionStatus": {
+      "enabled": true,
+      "target": {
+        "appToken": "example_pms_base_app_token",
+        "tableId": "example_projection_status_table"
+      },
+      "fieldMap": {
+        "backendId": "后端ID",
+        "projectionName": "投影名称",
+        "aggregateKey": "聚合键",
+        "status": "状态",
+        "attemptCount": "尝试次数",
+        "lastProjectedAt": "最近投影时间",
+        "lastErrorSummary": "错误摘要",
+        "updatedAt": "更新时间",
+        "schemaVersion": "版本"
+      },
+      "requiredFields": [
+        "backendId",
+        "projectionName",
+        "aggregateKey",
+        "status",
+        "attemptCount",
+        "updatedAt",
+        "schemaVersion"
+      ],
+      "updateAllowedFields": [
+        "projectionName",
+        "aggregateKey",
+        "status",
+        "attemptCount",
+        "lastProjectedAt",
+        "lastErrorSummary",
+        "updatedAt",
+        "schemaVersion"
+      ]
     }
   }
 }

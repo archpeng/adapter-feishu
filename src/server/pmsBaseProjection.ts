@@ -4,17 +4,20 @@ import type { JsonRecord } from '../core/contracts.js';
 import {
   PmsBaseProjectionError,
   type PmsBaseProjectionRegistry,
+  type PmsBaseProjectionRelationshipInputs,
   pms_base_append_operation_log,
   pms_base_dashboard_projection,
   pms_base_get_reservation_projection,
   pms_base_get_room_projection,
   pms_base_prune_inventory_calendar_projection,
+  pms_base_prune_projection_status,
   pms_base_today_arrivals_projection,
   pms_base_today_departures_projection,
   pms_base_upsert_housekeeping_task_projection,
   pms_base_upsert_inventory_calendar_projection,
   pms_base_upsert_maintenance_ticket_projection,
   pms_base_upsert_operation_request,
+  pms_base_upsert_projection_status,
   pms_base_upsert_reservation_projection,
   pms_base_upsert_room_projection,
   pms_base_update_operation_result,
@@ -171,7 +174,7 @@ export async function dispatchPmsBaseProjectionRequest(
         ]);
       }
       const result = await pms_base_append_operation_log(
-        { auditId, fields },
+        { auditId, fields, relationships: relationshipInputsField(payload) },
         { bitableClient: deps.bitableClient, registry: deps.registry, now: deps.now }
       );
       return { statusCode: 200, body: { code: 0, ...result } };
@@ -187,7 +190,7 @@ export async function dispatchPmsBaseProjectionRequest(
         ]);
       }
       const result = await pms_base_upsert_housekeeping_task_projection(
-        { taskId, fields },
+        { taskId, fields, relationships: relationshipInputsField(payload) },
         { bitableClient: deps.bitableClient, registry: deps.registry, now: deps.now }
       );
       return { statusCode: 200, body: { code: 0, ...result } };
@@ -203,7 +206,7 @@ export async function dispatchPmsBaseProjectionRequest(
         ]);
       }
       const result = await pms_base_upsert_maintenance_ticket_projection(
-        { ticketId, fields },
+        { ticketId, fields, relationships: relationshipInputsField(payload) },
         { bitableClient: deps.bitableClient, registry: deps.registry, now: deps.now }
       );
       return { statusCode: 200, body: { code: 0, ...result } };
@@ -231,7 +234,7 @@ export async function dispatchPmsBaseProjectionRequest(
         ]);
       }
       const result = await pms_base_upsert_reservation_projection(
-        { reservationCode, fields },
+        { reservationCode, fields, relationships: relationshipInputsField(payload) },
         { bitableClient: deps.bitableClient, registry: deps.registry, now: deps.now }
       );
       return { statusCode: 200, body: { code: 0, ...result } };
@@ -247,7 +250,7 @@ export async function dispatchPmsBaseProjectionRequest(
         ]);
       }
       const result = await pms_base_upsert_inventory_calendar_projection(
-        { intervalKey, fields },
+        { intervalKey, fields, relationships: relationshipInputsField(payload) },
         { bitableClient: deps.bitableClient, registry: deps.registry, now: deps.now }
       );
       return { statusCode: 200, body: { code: 0, ...result } };
@@ -260,6 +263,34 @@ export async function dispatchPmsBaseProjectionRequest(
       }
       const result = await pms_base_prune_inventory_calendar_projection(
         { intervalKey, fields: recordField(payload, 'fields') },
+        { bitableClient: deps.bitableClient, registry: deps.registry, now: deps.now }
+      );
+      return { statusCode: 200, body: { code: 0, ...result } };
+    }
+
+    if (operation === 'pms_base_upsert_projection_status') {
+      const projectionKey = stringField(payload, 'projectionKey');
+      const fields = recordField(payload, 'fields');
+      if (!projectionKey || !fields) {
+        return invalidPayloadResponse([
+          ...(!projectionKey ? ['projection_key_required'] : []),
+          ...(!fields ? ['fields_required'] : [])
+        ]);
+      }
+      const result = await pms_base_upsert_projection_status(
+        { projectionKey, fields },
+        { bitableClient: deps.bitableClient, registry: deps.registry, now: deps.now }
+      );
+      return { statusCode: 200, body: { code: 0, ...result } };
+    }
+
+    if (operation === 'pms_base_prune_projection_status') {
+      const projectionKey = stringField(payload, 'projectionKey');
+      if (!projectionKey) {
+        return invalidPayloadResponse(['projection_key_required']);
+      }
+      const result = await pms_base_prune_projection_status(
+        { projectionKey, fields: recordField(payload, 'fields') },
         { bitableClient: deps.bitableClient, registry: deps.registry, now: deps.now }
       );
       return { statusCode: 200, body: { code: 0, ...result } };
@@ -311,9 +342,19 @@ function projectionErrorResponse(error: unknown): PmsBaseProjectionResponse {
 }
 
 function firstTargetShieldError(payload: JsonRecord): string | undefined {
-  for (const key of ['target', 'appToken', 'tableId', 'formId', 'recordId']) {
-    if (payload[key] !== undefined) {
+  return firstTargetShieldErrorInRecord(payload);
+}
+
+function firstTargetShieldErrorInRecord(payload: Record<string, unknown>): string | undefined {
+  for (const [key, value] of Object.entries(payload)) {
+    if (['target', 'appToken', 'tableId', 'formId', 'recordId', 'callbackUrl', 'callbackURL', 'token', 'authToken', 'authorization', 'tenantId', 'tenant'].includes(key)) {
       return `target_not_allowed:${key}`;
+    }
+    if (isRecord(value)) {
+      const nested = firstTargetShieldErrorInRecord(value);
+      if (nested) {
+        return nested;
+      }
     }
   }
   return undefined;
@@ -344,7 +385,19 @@ function recordField(value: JsonRecord, key: string): Record<string, unknown> | 
   return isRecord(candidate) ? (candidate as Record<string, unknown>) : undefined;
 }
 
-function stringField(value: JsonRecord, key: string): string | undefined {
+function relationshipInputsField(value: JsonRecord): PmsBaseProjectionRelationshipInputs | undefined {
+  const relationships = recordField(value, 'relationships');
+  if (!relationships) {
+    return undefined;
+  }
+
+  return {
+    roomNumber: stringField(relationships, 'roomNumber'),
+    operationClientToken: stringField(relationships, 'operationClientToken')
+  };
+}
+
+function stringField(value: Record<string, unknown>, key: string): string | undefined {
   const candidate = value[key];
   return typeof candidate === 'string' && candidate.trim() ? candidate.trim() : undefined;
 }

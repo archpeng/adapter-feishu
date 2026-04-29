@@ -15,7 +15,8 @@ export type PmsBaseProjectionBindingKey =
   | 'maintenanceTickets'
   | 'reservations'
   | 'inventoryCalendar'
-  | 'operationLogs';
+  | 'operationLogs'
+  | 'projectionStatus';
 
 export interface PmsBaseProjectionBindingPolicy {
   validateSchemaByDefault: boolean;
@@ -35,6 +36,22 @@ export interface PmsBaseProjectionRegistry {
   version: 1;
   policy: PmsBaseProjectionBindingPolicy;
   bindings: Record<PmsBaseProjectionBindingKey, PmsBaseProjectionBinding>;
+}
+
+export type PmsBaseProjectionRelationStatus = 'fresh' | 'stale';
+
+export interface PmsBaseProjectionRelationshipInputs {
+  roomNumber?: string;
+  operationClientToken?: string;
+}
+
+export interface PmsBaseProjectionWarning {
+  code: string;
+  message: string;
+  relationField?: 'relatedRoom' | 'relatedOperationRequest';
+  targetBindingKey?: PmsBaseProjectionBindingKey;
+  businessField?: string;
+  businessValue?: string;
 }
 
 export interface PmsBaseProjectionDeps {
@@ -75,16 +92,19 @@ export interface PmsBaseUpsertRoomProjectionRequest {
 export interface PmsBaseAppendOperationLogRequest {
   auditId: string;
   fields: Record<string, unknown>;
+  relationships?: PmsBaseProjectionRelationshipInputs;
 }
 
 export interface PmsBaseUpsertHousekeepingTaskProjectionRequest {
   taskId: string;
   fields: Record<string, unknown>;
+  relationships?: Pick<PmsBaseProjectionRelationshipInputs, 'roomNumber'>;
 }
 
 export interface PmsBaseUpsertMaintenanceTicketProjectionRequest {
   ticketId: string;
   fields: Record<string, unknown>;
+  relationships?: Pick<PmsBaseProjectionRelationshipInputs, 'roomNumber'>;
 }
 
 export interface PmsBaseGetReservationProjectionRequest {
@@ -98,15 +118,27 @@ export interface PmsBaseTodayReservationsProjectionRequest {
 export interface PmsBaseUpsertReservationProjectionRequest {
   reservationCode: string;
   fields: Record<string, unknown>;
+  relationships?: Pick<PmsBaseProjectionRelationshipInputs, 'roomNumber'>;
 }
 
 export interface PmsBaseUpsertInventoryCalendarProjectionRequest {
   intervalKey: string;
   fields: Record<string, unknown>;
+  relationships?: Pick<PmsBaseProjectionRelationshipInputs, 'roomNumber'>;
 }
 
 export interface PmsBasePruneInventoryCalendarProjectionRequest {
   intervalKey: string;
+  fields?: Record<string, unknown>;
+}
+
+export interface PmsBaseUpsertProjectionStatusRequest {
+  projectionKey: string;
+  fields: Record<string, unknown>;
+}
+
+export interface PmsBasePruneProjectionStatusRequest {
+  projectionKey: string;
   fields?: Record<string, unknown>;
 }
 
@@ -149,11 +181,15 @@ export interface PmsBaseUpdateProjectionResult {
     | 'pms_base_upsert_maintenance_ticket_projection'
     | 'pms_base_upsert_reservation_projection'
     | 'pms_base_upsert_inventory_calendar_projection'
-    | 'pms_base_prune_inventory_calendar_projection';
+    | 'pms_base_prune_inventory_calendar_projection'
+    | 'pms_base_upsert_projection_status'
+    | 'pms_base_prune_projection_status';
   schemaVersion: typeof PMS_BASE_PROJECTION_SCHEMA_VERSION;
   status: 'created' | 'updated' | 'pruned';
   updatedFields: string[];
   projection: Record<string, unknown>;
+  relationStatus?: PmsBaseProjectionRelationStatus;
+  warnings?: PmsBaseProjectionWarning[];
 }
 
 export interface PmsBaseReservationProjectionResult {
@@ -190,11 +226,18 @@ const ALL_BINDING_KEYS: PmsBaseProjectionBindingKey[] = [
   'maintenanceTickets',
   'reservations',
   'inventoryCalendar',
-  'operationLogs'
+  'operationLogs',
+  'projectionStatus'
 ];
 const REQUIRED_BINDING_KEYS: PmsBaseProjectionBindingKey[] = ['roomLedger', 'operationRequests', 'operationLogs'];
 const DEFAULT_RECORD_PAGE_SIZE = 500;
 const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const BITABLE_RECORD_ID_PATTERN = /\b(?:rec_[a-zA-Z0-9_/-]{3,}|rec[a-zA-Z0-9]{12,})\b/;
+const TRACKED_TARGET_ID_PATTERN = /\b(?:bascn|tbl|fld|vew|form|rec)(?=[a-zA-Z0-9]{12,}\b)(?=[a-zA-Z0-9]*\d)[a-zA-Z0-9]{12,}\b/;
+const RAW_TARGET_KEY_PATTERN = /^(target|appToken|tableId|formId|recordId|callbackUrl|callbackURL|token|authToken)$/;
+const CALLBACK_URL_PATTERN = /https?:\/\/[^\s`"']*(?:callback|webhook|feishu|lark|bitable)[^\s`"']*/gi;
+const SECRET_ASSIGNMENT_PATTERN = /\b(?:appToken|tableId|formId|recordId|callback|tenantId|tenant|token|secret|authorization)\b\s*[:=]\s*[^\s,;]+/gi;
+const RELATION_BUSINESS_FIELDS = new Set(['relatedRoom', 'relatedOperationRequest']);
 const DEFAULT_POLICY: PmsBaseProjectionBindingPolicy = {
   validateSchemaByDefault: true,
   rejectUnmappedFields: true
@@ -522,22 +565,28 @@ export async function pms_base_append_operation_log(
   }
 
   const binding = requireBinding(deps.registry, 'operationLogs');
+  const coreFields = withoutCallerSuppliedRelationshipFields(request.fields);
+  const relationshipPlans = operationLogRelationshipPlans(coreFields, request.relationships);
   const createBusinessFields = {
     auditId,
-    ...request.fields
+    ...coreFields
   };
-  await assertSchemaFields(deps, binding, uniqueFields(['auditId', ...Object.keys(request.fields)]));
+  await assertSchemaFields(deps, binding, uniqueFields(['auditId', ...Object.keys(coreFields)]));
   const existing = await findOptionalUniqueRecordByBusinessField(deps, binding, 'auditId', auditId, {
     duplicateCode: 'duplicate_audit_id'
   });
   if (existing) {
-    return {
+    const relationResult = await writeBestEffortRelationshipFields(deps, binding, existing, relationshipPlans);
+    return withRelationshipResult({
       operation: 'pms_base_append_operation_log',
       schemaVersion: PMS_BASE_PROJECTION_SCHEMA_VERSION,
       status: 'updated',
-      updatedFields: [],
-      projection: toBusinessRecord(existing, binding)
-    };
+      updatedFields: relationResult.updatedFields,
+      projection: {
+        ...toBusinessRecord(existing, binding),
+        ...relationResult.projection
+      }
+    }, relationResult);
   }
 
   const createFields = mapCreateFields(binding, createBusinessFields);
@@ -546,14 +595,18 @@ export async function pms_base_append_operation_log(
     ...binding.target,
     fields: createFields
   });
+  const relationResult = await writeBestEffortRelationshipFields(deps, binding, created, relationshipPlans);
 
-  return {
+  return withRelationshipResult({
     operation: 'pms_base_append_operation_log',
     schemaVersion: PMS_BASE_PROJECTION_SCHEMA_VERSION,
     status: 'created',
-    updatedFields: Object.keys(createBusinessFields),
-    projection: toBusinessRecord(created, binding)
-  };
+    updatedFields: [...Object.keys(createBusinessFields), ...relationResult.updatedFields],
+    projection: {
+      ...toBusinessRecord(created, binding),
+      ...relationResult.projection
+    }
+  }, relationResult);
 }
 
 export async function pms_base_upsert_housekeeping_task_projection(
@@ -571,6 +624,7 @@ export async function pms_base_upsert_housekeeping_task_projection(
     uniqueBusinessField: 'taskId',
     uniqueValue: taskId,
     fields: request.fields,
+    relationships: roomRelationshipPlans(request.fields, request.relationships),
     duplicateCode: 'duplicate_housekeeping_task_id',
     recordIdMissingCode: 'housekeeping_task_projection_record_id_missing',
     operation: 'pms_base_upsert_housekeeping_task_projection'
@@ -592,6 +646,7 @@ export async function pms_base_upsert_maintenance_ticket_projection(
     uniqueBusinessField: 'ticketId',
     uniqueValue: ticketId,
     fields: request.fields,
+    relationships: roomRelationshipPlans(request.fields, request.relationships),
     duplicateCode: 'duplicate_maintenance_ticket_id',
     recordIdMissingCode: 'maintenance_ticket_projection_record_id_missing',
     operation: 'pms_base_upsert_maintenance_ticket_projection'
@@ -637,6 +692,7 @@ export async function pms_base_upsert_reservation_projection(
     uniqueBusinessField: 'reservationCode',
     uniqueValue: reservationCode,
     fields: request.fields,
+    relationships: roomRelationshipPlans(request.fields, request.relationships),
     duplicateCode: 'duplicate_reservation_code',
     recordIdMissingCode: 'reservation_projection_record_id_missing',
     operation: 'pms_base_upsert_reservation_projection'
@@ -658,6 +714,7 @@ export async function pms_base_upsert_inventory_calendar_projection(
     uniqueBusinessField: 'intervalKey',
     uniqueValue: intervalKey,
     fields: request.fields,
+    relationships: roomRelationshipPlans(request.fields, request.relationships),
     duplicateCode: 'duplicate_inventory_interval_key',
     recordIdMissingCode: 'inventory_calendar_projection_record_id_missing',
     operation: 'pms_base_upsert_inventory_calendar_projection'
@@ -719,6 +776,116 @@ export async function pms_base_prune_inventory_calendar_projection(
   };
 }
 
+export async function pms_base_upsert_projection_status(
+  request: PmsBaseUpsertProjectionStatusRequest,
+  deps: PmsBaseProjectionDeps
+): Promise<PmsBaseUpdateProjectionResult> {
+  const projectionKey = normalizeString(request.projectionKey);
+  if (!projectionKey) {
+    throw new PmsBaseProjectionError('invalid_payload', 'projection_key_required');
+  }
+
+  const binding = requireBinding(deps.registry, 'projectionStatus');
+  const coreFields = sanitizeProjectionStatusFields(request.fields);
+  const createBusinessFields = {
+    backendId: projectionKey,
+    ...coreFields
+  };
+  await assertSchemaFields(deps, binding, uniqueFields(['backendId', ...Object.keys(coreFields)]));
+  const existing = await findOptionalUniqueRecordByBusinessField(deps, binding, 'backendId', projectionKey, {
+    duplicateCode: 'duplicate_projection_status_key'
+  });
+
+  if (existing) {
+    const updateBusinessFields = pickAllowedFields(binding.updateAllowedFields, coreFields);
+    const updateFields = mapUpdateFields(binding, updateBusinessFields);
+    const recordId = requireRecordId(existing, 'projection_status_record_id_missing');
+    const updated = await deps.bitableClient.updateRecord({
+      ...binding.target,
+      recordId,
+      fields: updateFields
+    });
+
+    return {
+      operation: 'pms_base_upsert_projection_status',
+      schemaVersion: PMS_BASE_PROJECTION_SCHEMA_VERSION,
+      status: 'updated',
+      updatedFields: Object.keys(updateBusinessFields),
+      projection: toBusinessRecord(updated, binding)
+    };
+  }
+
+  const createFields = mapCreateFields(binding, createBusinessFields);
+  assertRequiredCreateFields(binding, createBusinessFields);
+  const created = await deps.bitableClient.createRecord({
+    ...binding.target,
+    fields: createFields
+  });
+
+  return {
+    operation: 'pms_base_upsert_projection_status',
+    schemaVersion: PMS_BASE_PROJECTION_SCHEMA_VERSION,
+    status: 'created',
+    updatedFields: Object.keys(createBusinessFields),
+    projection: toBusinessRecord(created, binding)
+  };
+}
+
+export async function pms_base_prune_projection_status(
+  request: PmsBasePruneProjectionStatusRequest,
+  deps: PmsBaseProjectionDeps
+): Promise<PmsBaseUpdateProjectionResult> {
+  const projectionKey = normalizeString(request.projectionKey);
+  if (!projectionKey) {
+    throw new PmsBaseProjectionError('invalid_payload', 'projection_key_required');
+  }
+
+  const binding = requireBinding(deps.registry, 'projectionStatus');
+  const baseFields = sanitizeProjectionStatusFields(request.fields ?? {});
+  const updatedAt = baseFields.updatedAt ?? deps.now?.() ?? new Date().toISOString();
+  const pruneBusinessFields = {
+    ...baseFields,
+    status: 'pruned',
+    updatedAt,
+    schemaVersion: baseFields.schemaVersion ?? PMS_BASE_PROJECTION_SCHEMA_VERSION
+  };
+  await assertSchemaFields(deps, binding, uniqueFields(['backendId', ...Object.keys(pruneBusinessFields)]));
+  const existing = await findOptionalUniqueRecordByBusinessField(deps, binding, 'backendId', projectionKey, {
+    duplicateCode: 'duplicate_projection_status_key'
+  });
+
+  if (!existing) {
+    return {
+      operation: 'pms_base_prune_projection_status',
+      schemaVersion: PMS_BASE_PROJECTION_SCHEMA_VERSION,
+      status: 'pruned',
+      updatedFields: [],
+      projection: {
+        backendId: projectionKey,
+        status: 'pruned',
+        updatedAt,
+        schemaVersion: PMS_BASE_PROJECTION_SCHEMA_VERSION
+      }
+    };
+  }
+
+  const updateFields = mapUpdateFields(binding, pruneBusinessFields);
+  const recordId = requireRecordId(existing, 'projection_status_record_id_missing');
+  const updated = await deps.bitableClient.updateRecord({
+    ...binding.target,
+    recordId,
+    fields: updateFields
+  });
+
+  return {
+    operation: 'pms_base_prune_projection_status',
+    schemaVersion: PMS_BASE_PROJECTION_SCHEMA_VERSION,
+    status: 'pruned',
+    updatedFields: Object.keys(pruneBusinessFields),
+    projection: toBusinessRecord(updated, binding)
+  };
+}
+
 export async function pms_base_today_arrivals_projection(
   request: PmsBaseTodayReservationsProjectionRequest,
   deps: PmsBaseProjectionDeps
@@ -739,22 +906,24 @@ async function upsertProjectionByBusinessField(input: {
   uniqueBusinessField: string;
   uniqueValue: string;
   fields: Record<string, unknown>;
+  relationships?: RelationshipPlan[];
   duplicateCode: string;
   recordIdMissingCode: string;
   operation: PmsBaseUpdateProjectionResult['operation'];
 }): Promise<PmsBaseUpdateProjectionResult> {
   const binding = requireBinding(input.deps.registry, input.bindingKey);
+  const coreFields = withoutCallerSuppliedRelationshipFields(input.fields);
   const createBusinessFields = {
-    ...input.fields,
+    ...coreFields,
     [input.uniqueBusinessField]: input.uniqueValue
   };
-  await assertSchemaFields(input.deps, binding, uniqueFields([input.uniqueBusinessField, ...Object.keys(input.fields)]));
+  await assertSchemaFields(input.deps, binding, uniqueFields([input.uniqueBusinessField, ...Object.keys(coreFields)]));
   const existing = await findOptionalUniqueRecordByBusinessField(input.deps, binding, input.uniqueBusinessField, input.uniqueValue, {
     duplicateCode: input.duplicateCode
   });
 
   if (existing) {
-    const updateBusinessFields = pickAllowedFields(binding.updateAllowedFields, input.fields);
+    const updateBusinessFields = pickAllowedFields(binding.updateAllowedFields, coreFields);
     const updateFields = mapUpdateFields(binding, updateBusinessFields);
     const recordId = requireRecordId(existing, input.recordIdMissingCode);
     const updated = await input.deps.bitableClient.updateRecord({
@@ -762,14 +931,18 @@ async function upsertProjectionByBusinessField(input: {
       recordId,
       fields: updateFields
     });
+    const relationResult = await writeBestEffortRelationshipFields(input.deps, binding, updated, input.relationships ?? []);
 
-    return {
+    return withRelationshipResult({
       operation: input.operation,
       schemaVersion: PMS_BASE_PROJECTION_SCHEMA_VERSION,
       status: 'updated',
-      updatedFields: Object.keys(updateBusinessFields),
-      projection: toBusinessRecord(updated, binding)
-    };
+      updatedFields: [...Object.keys(updateBusinessFields), ...relationResult.updatedFields],
+      projection: {
+        ...toBusinessRecord(updated, binding),
+        ...relationResult.projection
+      }
+    }, relationResult);
   }
 
   const createFields = mapCreateFields(binding, createBusinessFields);
@@ -778,14 +951,18 @@ async function upsertProjectionByBusinessField(input: {
     ...binding.target,
     fields: createFields
   });
+  const relationResult = await writeBestEffortRelationshipFields(input.deps, binding, created, input.relationships ?? []);
 
-  return {
+  return withRelationshipResult({
     operation: input.operation,
     schemaVersion: PMS_BASE_PROJECTION_SCHEMA_VERSION,
     status: 'created',
-    updatedFields: Object.keys(createBusinessFields),
-    projection: toBusinessRecord(created, binding)
-  };
+    updatedFields: [...Object.keys(createBusinessFields), ...relationResult.updatedFields],
+    projection: {
+      ...toBusinessRecord(created, binding),
+      ...relationResult.projection
+    }
+  }, relationResult);
 }
 
 async function todayReservationsProjection(
@@ -812,6 +989,336 @@ async function todayReservationsProjection(
     businessDate,
     reservations,
     projectionFreshness: 'Fresh'
+  };
+}
+
+type RelationshipBusinessField = 'relatedRoom' | 'relatedOperationRequest';
+
+interface RelationshipPlan {
+  relationField: RelationshipBusinessField;
+  targetBindingKey: PmsBaseProjectionBindingKey;
+  targetBusinessField: string;
+  targetBusinessValue?: string;
+}
+
+interface RelationshipWriteResult {
+  attempted: boolean;
+  updatedFields: string[];
+  projection: Record<string, unknown>;
+  warnings: PmsBaseProjectionWarning[];
+}
+
+function roomRelationshipPlans(
+  fields: Record<string, unknown>,
+  relationships?: Pick<PmsBaseProjectionRelationshipInputs, 'roomNumber'>
+): RelationshipPlan[] {
+  const roomNumber = normalizeString(relationships?.roomNumber) ?? normalizeString(fields.roomNumber);
+  return roomNumber
+    ? [{ relationField: 'relatedRoom', targetBindingKey: 'roomLedger', targetBusinessField: 'roomNumber', targetBusinessValue: roomNumber }]
+    : [];
+}
+
+function operationLogRelationshipPlans(
+  fields: Record<string, unknown>,
+  relationships: PmsBaseProjectionRelationshipInputs | undefined
+): RelationshipPlan[] {
+  const plans = roomRelationshipPlans(fields, relationships);
+  const operationClientToken = normalizeString(relationships?.operationClientToken);
+  if (operationClientToken) {
+    plans.push({
+      relationField: 'relatedOperationRequest',
+      targetBindingKey: 'operationRequests',
+      targetBusinessField: 'clientToken',
+      targetBusinessValue: operationClientToken
+    });
+  }
+  return plans;
+}
+
+function withoutCallerSuppliedRelationshipFields(fields: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [field, value] of Object.entries(fields)) {
+    if (RELATION_BUSINESS_FIELDS.has(field)) {
+      throw new PmsBaseProjectionError('invalid_payload', `relationship_field_not_allowed:${field}`);
+    }
+    result[field] = value;
+  }
+  return result;
+}
+
+function sanitizeProjectionStatusFields(fields: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [field, value] of Object.entries(fields)) {
+    if (RAW_TARGET_KEY_PATTERN.test(field)) {
+      throw new PmsBaseProjectionError('invalid_payload', `projection_status_field_not_allowed:${field}`);
+    }
+    if (field === 'lastErrorSummary') {
+      result[field] = typeof value === 'string' ? redactProjectionStatusText(value) : value;
+      continue;
+    }
+    rejectUnsafeProjectionStatusValue(field, value);
+    result[field] = value;
+  }
+  return result;
+}
+
+function rejectUnsafeProjectionStatusValue(field: string, value: unknown): void {
+  if (typeof value === 'string' && looksLikeUnsafeProjectionStatusText(value)) {
+    throw new PmsBaseProjectionError('invalid_payload', `unsafe_projection_status_value:${field}`);
+  }
+  if (Array.isArray(value)) {
+    value.forEach((entry, index) => rejectUnsafeProjectionStatusValue(`${field}[${index}]`, entry));
+    return;
+  }
+  if (isRecord(value)) {
+    for (const [key, entry] of Object.entries(value)) {
+      if (RAW_TARGET_KEY_PATTERN.test(key)) {
+        throw new PmsBaseProjectionError('invalid_payload', `projection_status_field_not_allowed:${field}.${key}`);
+      }
+      rejectUnsafeProjectionStatusValue(`${field}.${key}`, entry);
+    }
+  }
+}
+
+function looksLikeUnsafeProjectionStatusText(value: string): boolean {
+  CALLBACK_URL_PATTERN.lastIndex = 0;
+  SECRET_ASSIGNMENT_PATTERN.lastIndex = 0;
+  return (
+    BITABLE_RECORD_ID_PATTERN.test(value) ||
+    TRACKED_TARGET_ID_PATTERN.test(value) ||
+    CALLBACK_URL_PATTERN.test(value) ||
+    SECRET_ASSIGNMENT_PATTERN.test(value)
+  );
+}
+
+function redactProjectionStatusText(value: string): string {
+  return value
+    .replace(CALLBACK_URL_PATTERN, '[redacted-url]')
+    .replace(SECRET_ASSIGNMENT_PATTERN, '[redacted-secret]')
+    .replace(TRACKED_TARGET_ID_PATTERN, '[redacted-id]')
+    .replace(BITABLE_RECORD_ID_PATTERN, '[redacted-record]');
+}
+
+async function writeBestEffortRelationshipFields(
+  deps: PmsBaseProjectionDeps,
+  sourceBinding: PmsBaseProjectionBinding,
+  sourceRecord: BitableRecord,
+  plans: RelationshipPlan[]
+): Promise<RelationshipWriteResult> {
+  const resolved = await resolveRelationshipFields(deps, sourceBinding, plans);
+  if (Object.keys(resolved.fields).length === 0) {
+    return {
+      attempted: resolved.attempted,
+      updatedFields: [],
+      projection: {},
+      warnings: resolved.warnings
+    };
+  }
+
+  const recordId = sourceRecord.recordId;
+  if (!recordId) {
+    return {
+      attempted: true,
+      updatedFields: [],
+      projection: {},
+      warnings: [
+        ...resolved.warnings,
+        relationWarning('linked_record_source_record_id_missing', 'source_record_id_missing_for_linked_record_update')
+      ]
+    };
+  }
+
+  try {
+    const updated = await deps.bitableClient.updateRecord({
+      ...sourceBinding.target,
+      recordId,
+      fields: resolved.fields
+    });
+
+    return {
+      attempted: true,
+      updatedFields: resolved.updatedFields,
+      projection: toBusinessRecord(updated, sourceBinding),
+      warnings: resolved.warnings
+    };
+  } catch (error) {
+    return {
+      attempted: true,
+      updatedFields: [],
+      projection: {},
+      warnings: [
+        ...resolved.warnings,
+        relationWarning('linked_record_update_failed', `linked_record_update_failed:${errorMessage(error)}`)
+      ]
+    };
+  }
+}
+
+async function resolveRelationshipFields(
+  deps: PmsBaseProjectionDeps,
+  sourceBinding: PmsBaseProjectionBinding,
+  plans: RelationshipPlan[]
+): Promise<{ attempted: boolean; fields: Record<string, unknown>; updatedFields: RelationshipBusinessField[]; warnings: PmsBaseProjectionWarning[] }> {
+  const fields: Record<string, unknown> = {};
+  const updatedFields: RelationshipBusinessField[] = [];
+  const warnings: PmsBaseProjectionWarning[] = [];
+  let attempted = false;
+
+  for (const plan of plans) {
+    const businessValue = normalizeString(plan.targetBusinessValue);
+    if (!businessValue) {
+      continue;
+    }
+    attempted = true;
+
+    if (BITABLE_RECORD_ID_PATTERN.test(businessValue)) {
+      warnings.push(relationWarning(
+        'relationship_business_key_rejected_record_id_shape',
+        `relationship_business_key_rejected_record_id_shape:${plan.relationField}`,
+        plan,
+        businessValue
+      ));
+      continue;
+    }
+
+    const sourceFieldName = sourceBinding.fieldMap[plan.relationField];
+    if (!sourceFieldName) {
+      warnings.push(relationWarning(
+        'linked_record_field_mapping_missing',
+        `linked_record_field_mapping_missing:${sourceBinding.bindingKey}:${plan.relationField}`,
+        plan,
+        businessValue
+      ));
+      continue;
+    }
+
+    if (!(await tableHasMappedField(deps, sourceBinding, plan.relationField))) {
+      warnings.push(relationWarning(
+        'linked_record_field_missing',
+        `linked_record_field_missing:${sourceBinding.bindingKey}:${plan.relationField}`,
+        plan,
+        businessValue
+      ));
+      continue;
+    }
+
+    let targetBinding: PmsBaseProjectionBinding;
+    try {
+      targetBinding = requireBinding(deps.registry, plan.targetBindingKey);
+    } catch (error) {
+      warnings.push(relationWarning(
+        'linked_record_target_unavailable',
+        `linked_record_target_unavailable:${plan.targetBindingKey}:${errorMessage(error)}`,
+        plan,
+        businessValue
+      ));
+      continue;
+    }
+
+    const targetFieldName = targetBinding.fieldMap[plan.targetBusinessField];
+    if (!targetFieldName) {
+      warnings.push(relationWarning(
+        'linked_record_target_field_mapping_missing',
+        `linked_record_target_field_mapping_missing:${plan.targetBindingKey}:${plan.targetBusinessField}`,
+        plan,
+        businessValue
+      ));
+      continue;
+    }
+
+    if (!(await tableHasMappedField(deps, targetBinding, plan.targetBusinessField))) {
+      warnings.push(relationWarning(
+        'linked_record_target_field_missing',
+        `linked_record_target_field_missing:${plan.targetBindingKey}:${plan.targetBusinessField}`,
+        plan,
+        businessValue
+      ));
+      continue;
+    }
+
+    const records = await listAllRecords(deps, targetBinding.target);
+    const matches = records.filter((record) => fieldValueMatches(record.fields[targetFieldName], businessValue));
+    if (matches.length === 0) {
+      warnings.push(relationWarning(
+        'linked_record_related_record_missing',
+        `linked_record_related_record_missing:${plan.targetBindingKey}:${plan.targetBusinessField}`,
+        plan,
+        businessValue
+      ));
+      continue;
+    }
+    if (matches.length > 1) {
+      warnings.push(relationWarning(
+        'linked_record_related_record_duplicate',
+        `linked_record_related_record_duplicate:${plan.targetBindingKey}:${plan.targetBusinessField}`,
+        plan,
+        businessValue
+      ));
+      continue;
+    }
+
+    const recordId = matches[0].recordId;
+    if (!recordId) {
+      warnings.push(relationWarning(
+        'linked_record_related_record_id_missing',
+        `linked_record_related_record_id_missing:${plan.targetBindingKey}:${plan.targetBusinessField}`,
+        plan,
+        businessValue
+      ));
+      continue;
+    }
+
+    fields[sourceFieldName] = [recordId];
+    updatedFields.push(plan.relationField);
+  }
+
+  return { attempted, fields, updatedFields, warnings };
+}
+
+async function tableHasMappedField(
+  deps: PmsBaseProjectionDeps,
+  binding: PmsBaseProjectionBinding,
+  businessField: string
+): Promise<boolean> {
+  if (deps.validateSchema === false || deps.registry.policy.validateSchemaByDefault === false) {
+    return true;
+  }
+
+  const fieldName = binding.fieldMap[businessField];
+  if (!fieldName) {
+    return false;
+  }
+
+  const tableFields = await listAllTableFields(deps, binding.target);
+  return tableFields.some((field) => field.fieldName === fieldName);
+}
+
+function withRelationshipResult(
+  result: PmsBaseUpdateProjectionResult,
+  relationResult: RelationshipWriteResult
+): PmsBaseUpdateProjectionResult {
+  if (!relationResult.attempted) {
+    return result;
+  }
+
+  return {
+    ...result,
+    relationStatus: relationResult.warnings.length > 0 ? 'stale' : 'fresh',
+    warnings: relationResult.warnings
+  };
+}
+
+function relationWarning(
+  code: string,
+  message: string,
+  plan?: RelationshipPlan,
+  businessValue?: string
+): PmsBaseProjectionWarning {
+  return {
+    code,
+    message,
+    ...(plan ? { relationField: plan.relationField, targetBindingKey: plan.targetBindingKey, businessField: plan.targetBusinessField } : {}),
+    ...(businessValue ? { businessValue } : {})
   };
 }
 
@@ -1226,7 +1733,8 @@ function isPmsBaseProjectionBindingKey(value: string): value is PmsBaseProjectio
     value === 'maintenanceTickets' ||
     value === 'reservations' ||
     value === 'inventoryCalendar' ||
-    value === 'operationLogs'
+    value === 'operationLogs' ||
+    value === 'projectionStatus'
   );
 }
 

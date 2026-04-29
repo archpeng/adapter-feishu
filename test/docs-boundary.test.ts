@@ -75,7 +75,8 @@ describe('documentation boundary freeze', () => {
     expect(Object.keys(pmsRegistryExample.forms ?? {})).toEqual([
       'pms-checkout',
       'pms-maintenance-report',
-      'pms-housekeeping-done'
+      'pms-housekeeping-done',
+      'pms-operation-request'
     ]);
 
     for (const formKey of ['pms-checkout', 'pms-maintenance-report', 'pms-housekeeping-done']) {
@@ -91,7 +92,20 @@ describe('documentation boundary freeze', () => {
       });
     }
 
+    expect(pmsRegistryExample.forms?.['pms-operation-request']).toMatchObject({
+      delivery: { kind: 'ai_pms_operation_request_intake' },
+      fixedFields: {
+        source: 'external_form',
+        ingress: 'formKey:pms-operation-request',
+        schemaVersion: 'pms-operation-request-intake-v1'
+      },
+      policy: {
+        validateFormSchemaByDefault: false,
+        rejectUnmappedFields: true
+      }
+    });
     expect(pmsRegistryExampleRaw).toContain('Action');
+    expect(pmsRegistryExampleRaw).toContain('ai_pms_operation_request_intake');
     expect(pmsRegistryExampleRaw).not.toContain('app_secret');
     expect(pmsRegistryExampleRaw).not.toContain('bascn');
     expect(formRunbook).toContain('ADAPTER_FEISHU_FORM_REGISTRY_PATH=config/pms-form-bindings.example.json');

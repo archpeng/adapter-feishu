@@ -175,6 +175,9 @@ describe('createAdapterRuntime', () => {
         'pms-intake': {
           formKey: 'pms-intake',
           enabled: true,
+          delivery: {
+            kind: 'base_record'
+          },
           target: {
             appToken: 'bascn_example_app_token',
             tableId: 'tbl_example_table_id',

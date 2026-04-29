@@ -6,11 +6,12 @@
 
 - endpoint: `POST /providers/form-webhook`
 - legacy mode: caller sends table-field `fields` and uses the configured default target or an explicitly allowed raw `target`
-- managed mode: caller sends `formKey + fields`; the adapter resolves the target and field mapping from a server-side registry file
-- primary behavior: write one record into an **existing** Feishu Base / Bitable table
-- optional behavior: preflight submitted fields against an **existing** Feishu form schema before record creation
+- managed mode: caller sends `formKey + fields`; the adapter resolves delivery and field mapping from a server-side registry file
+- base-record behavior: write one record into an **existing** Feishu Base / Bitable table
+- D5 PMS operation-request behavior: forward normalized business fields to `ai-pms` intake without caller-supplied Base targets
+- optional base-record behavior: preflight submitted fields against an **existing** Feishu form schema before record creation
 
-Managed mode is a routing and mapping layer over the same record-write path. It is intentionally not a form-design/control platform.
+Managed mode is a routing and mapping layer over either the existing record-write path or the bounded D5 `ai-pms` operation-request intake forwarding path. It is intentionally not a form-design/control platform.
 
 This integration is intentionally **not**:
 
@@ -25,6 +26,7 @@ Repo truth stays bounded to the APIs already wired in code:
 
 - record write: `bitable.appTableRecord.create`
 - optional schema preflight: `bitable.appTableForm.get` + `bitable.appTableFormField.list`
+- D5 operation-request forward: `POST /pms/operation-requests/intake` on `ai-pms`
 - managed registry load: local JSON file configured by `ADAPTER_FEISHU_FORM_REGISTRY_PATH`
 
 ## Prerequisites
@@ -73,6 +75,18 @@ ADAPTER_FEISHU_FORM_REGISTRY_PATH=config/form-bindings.example.json
 
 `config/form-bindings.example.json` is tracked as a placeholder-only example. Copy it or mount a tenant-specific file for real deployments; do not commit private tenant target IDs.
 
+### D5 PMS operation-request forwarding config
+
+Set these only when a managed binding uses `delivery.kind=ai_pms_operation_request_intake`:
+
+```env
+ADAPTER_FEISHU_PMS_OPERATION_REQUEST_INTAKE_URL=http://127.0.0.1:8792/pms/operation-requests/intake
+ADAPTER_FEISHU_PMS_OPERATION_REQUEST_INTAKE_TIMEOUT_MS=5000
+AI_PMS_CALLBACK_TOKEN=local-shared-secret
+```
+
+The URL is local/configuration, not a tenant Base target. `AI_PMS_CALLBACK_TOKEN` is sent as `X-AI-PMS-CALLBACK-TOKEN` and must not be committed. D5C proof/evidence is recorded in `ai-pms/docs/runbooks/pms-operation-request-form-intake-proof.md`; keep any live/sandbox transcript redacted and do not commit raw app/base/table/form/record/chat/user IDs, callback URLs, or tokens.
+
 ### Legacy default-target config
 
 Keep these for legacy/default-target requests that do not send `formKey`:
@@ -94,6 +108,8 @@ ADAPTER_FEISHU_FORM_DEFAULT_FORM_ID=formxxxxxxxxxxxx
 | `ADAPTER_FEISHU_FORM_DEFAULT_APP_TOKEN` | with default target | Legacy default Base app token. Must be set together with `ADAPTER_FEISHU_FORM_DEFAULT_TABLE_ID`. |
 | `ADAPTER_FEISHU_FORM_DEFAULT_TABLE_ID` | with default target | Legacy default target table ID. Must be set together with `ADAPTER_FEISHU_FORM_DEFAULT_APP_TOKEN`. |
 | `ADAPTER_FEISHU_FORM_DEFAULT_FORM_ID` | optional | Optional legacy default form ID. Needed only when callers want `validateFormSchema=true` against the default target. |
+| `ADAPTER_FEISHU_PMS_OPERATION_REQUEST_INTAKE_URL` | D5 forwarding only | Absolute `ai-pms` intake URL for managed operation-request forms. Requires `AI_PMS_CALLBACK_TOKEN`. |
+| `ADAPTER_FEISHU_PMS_OPERATION_REQUEST_INTAKE_TIMEOUT_MS` | no | Forwarding timeout for D5 operation-request intake. Default: `5000`. |
 
 Operational rules from code:
 
@@ -143,10 +159,11 @@ Binding semantics:
 | `version` | yes | Must be `1`. |
 | `forms` | yes | Object keyed by public `formKey`. Must contain at least one binding. |
 | `forms.<formKey>.enabled` | yes | `false` disables the binding without deleting it. Disabled keys return `form_key_disabled:<formKey>`. |
-| `forms.<formKey>.target.appToken` | yes | Server-side Base app token used for record create. |
-| `forms.<formKey>.target.tableId` | yes | Server-side target table ID used for record create. |
-| `forms.<formKey>.target.formId` | optional | Server-side form ID used for schema preflight. Required when schema validation is enabled for that binding. |
-| `forms.<formKey>.fieldMap` | yes | Maps request business keys to Feishu table/form field names, e.g. `title -> Title`. |
+| `forms.<formKey>.delivery.kind` | no | Defaults to `base_record`. D5 operation-request forms use `ai_pms_operation_request_intake` and must omit `target`. |
+| `forms.<formKey>.target.appToken` | base_record only | Server-side Base app token used for record create. |
+| `forms.<formKey>.target.tableId` | base_record only | Server-side target table ID used for record create. |
+| `forms.<formKey>.target.formId` | base_record optional | Server-side form ID used for schema preflight. Required when schema validation is enabled for that binding. |
+| `forms.<formKey>.fieldMap` | yes | Maps request business keys to Feishu table/form field names for `base_record`, or submitted form labels/keys to operation-request business fields for D5 forwarding. |
 | `forms.<formKey>.fixedFields` | optional | Static Feishu fields injected after mapping, e.g. `Source`. Caller input cannot override these. |
 | `forms.<formKey>.policy.validateFormSchemaByDefault` | yes | Default schema preflight behavior for this binding. Caller may still send explicit `validateFormSchema` boolean. |
 | `forms.<formKey>.policy.rejectUnmappedFields` | yes | When `true`, managed mode rejects unknown business keys instead of passing them through. Keep `true` for controlled handoff. |

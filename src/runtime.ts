@@ -15,6 +15,7 @@ import { readRequestBody, respondJson } from './channels/feishu/webhookSecurity.
 import type { AdapterConfig } from './config.js';
 import { createConversationHttpTurnForwarder } from './conversation/forwarder.js';
 import { type InboundTurn, type JsonRecord, type ProviderKey } from './core/contracts.js';
+import { createOperationRequestIntakeForwarder } from './forms/operationRequestIntakeForwarder.js';
 import { loadManagedFormRegistry, type ManagedFormRegistry } from './forms/registry.js';
 import {
   loadPmsBaseProjectionRegistry,
@@ -143,6 +144,15 @@ export function createAdapterRuntime(
         token: pmsCheckoutConfig.callbackToken,
         headerName: pmsCheckoutConfig.callbackTokenHeader,
         timeoutMs: pmsCheckoutConfig.inboundTurnTimeoutMs
+      })
+    : undefined;
+  const formConfig = config.form;
+  const operationRequestIntakeForwarder = formConfig.operationRequestIntakeUrl && formConfig.operationRequestIntakeAuthToken
+    ? createOperationRequestIntakeForwarder({
+        url: formConfig.operationRequestIntakeUrl,
+        token: formConfig.operationRequestIntakeAuthToken,
+        headerName: formConfig.operationRequestIntakeAuthHeader,
+        timeoutMs: formConfig.operationRequestIntakeTimeoutMs
       })
     : undefined;
   const conversationConfig = config.conversation;
@@ -383,6 +393,7 @@ export function createAdapterRuntime(
             defaultTarget: config.form.defaultTarget,
             allowTargetOverride: config.form.allowTargetOverride,
             formRegistry,
+            operationRequestIntakeForwarder,
             userIdType: config.form.userIdType,
             deduper,
             tableWriteQueue

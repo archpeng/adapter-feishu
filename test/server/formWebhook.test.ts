@@ -929,6 +929,146 @@ describe('dispatchFormWebhookRequest', () => {
     });
   });
 
+  it('forwards the PMS operation request form to ai-pms with business fields only', async () => {
+    const createRecord = vi.fn();
+    const forwardOperationRequest = vi.fn().mockResolvedValue({
+      statusCode: 202,
+      body: {
+        ok: true,
+        status: 'dry_run_projected',
+        typedConfirm: { required: true, handler: 'ai_pms.pms_checkout.confirm_callback' }
+      }
+    });
+
+    const response = await dispatchFormWebhookRequest(
+      {
+        method: 'POST',
+        pathname: '/providers/form-webhook',
+        rawBody: JSON.stringify({
+          formKey: 'pms-operation-request',
+          clientToken: validClientToken,
+          fields: {
+            '操作类型': 'CHECK_OUT',
+            '房号': '0308',
+            '预订号': 'reservation-demo-1',
+            '操作人': 'frontdesk-01',
+            '原因': 'guest checked out',
+            '备注': 'minibar checked',
+            '请求时间': '2026-04-24T10:30:00+08:00'
+          }
+        })
+      },
+      {
+        bitableClient: { createRecord },
+        userIdType: 'user_id',
+        formRegistry: createPmsManagedFormRegistry(),
+        operationRequestIntakeForwarder: { forwardOperationRequest }
+      }
+    );
+
+    expect(createRecord).not.toHaveBeenCalled();
+    expect(forwardOperationRequest).toHaveBeenCalledWith({
+      schemaVersion: 'pms-operation-request-intake-v1',
+      source: 'adapter-feishu',
+      ingress: 'managed_form',
+      formKey: 'pms-operation-request',
+      clientToken: validClientToken,
+      fields: {
+        action: 'CHECK_OUT',
+        roomNumber: '0308',
+        reservationId: 'reservation-demo-1',
+        operator: 'frontdesk-01',
+        reason: 'guest checked out',
+        notes: 'minibar checked',
+        requestedAt: '2026-04-24T10:30:00+08:00',
+        source: 'external_form',
+        ingress: 'formKey:pms-operation-request',
+        schemaVersion: 'pms-operation-request-intake-v1'
+      }
+    });
+    expect(response).toEqual({
+      statusCode: 202,
+      body: {
+        code: 0,
+        status: 'operation_request_forwarded',
+        clientToken: validClientToken,
+        targetSource: 'managed_forward',
+        formKey: 'pms-operation-request',
+        aiPms: {
+          ok: true,
+          status: 'dry_run_projected',
+          typedConfirm: { required: true, handler: 'ai_pms.pms_checkout.confirm_callback' }
+        }
+      }
+    });
+  });
+
+  it('shields PMS operation request form forwarding from raw Base targets and duplicate callbacks', async () => {
+    const createRecord = vi.fn();
+    const forwardOperationRequest = vi.fn().mockResolvedValue({ statusCode: 202, body: { ok: true } });
+    const registry = createPmsManagedFormRegistry();
+    const deduper = createAlertDeduper({ ttlMs: 1_000, now: () => 1_000 });
+    const request = {
+      method: 'POST',
+      pathname: '/providers/form-webhook',
+      rawBody: JSON.stringify({
+        formKey: 'pms-operation-request',
+        clientToken: validClientToken,
+        fields: {
+          action: 'CHECK_IN',
+          roomNumber: '0308',
+          operator: 'frontdesk-01',
+          reason: 'arrival ready'
+        }
+      })
+    };
+    const deps = {
+      bitableClient: { createRecord },
+      userIdType: 'user_id' as const,
+      formRegistry: registry,
+      operationRequestIntakeForwarder: { forwardOperationRequest },
+      deduper
+    };
+
+    const rawTarget = await dispatchFormWebhookRequest(
+      {
+        method: 'POST',
+        pathname: '/providers/form-webhook',
+        rawBody: JSON.stringify({
+          formKey: 'pms-operation-request',
+          clientToken: validClientToken,
+          fields: {
+            action: 'CHECK_IN',
+            roomNumber: '0308',
+            recordId: 'recCallerControlled123456'
+          }
+        })
+      },
+      deps
+    );
+    const first = await dispatchFormWebhookRequest(request, deps);
+    const second = await dispatchFormWebhookRequest(request, deps);
+
+    expect(rawTarget.body).toMatchObject({
+      code: 400,
+      message: 'invalid_payload',
+      errors: ['target_not_allowed:fields.recordId', 'field_not_mapped:recordId']
+    });
+    expect(createRecord).not.toHaveBeenCalled();
+    expect(forwardOperationRequest).toHaveBeenCalledTimes(1);
+    expect(first.body).toMatchObject({ status: 'operation_request_forwarded', targetSource: 'managed_forward' });
+    expect(second).toEqual({
+      statusCode: 202,
+      body: {
+        code: 0,
+        status: 'duplicate_ignored',
+        clientToken: validClientToken,
+        targetSource: 'managed_forward',
+        formKey: 'pms-operation-request'
+      }
+    });
+  });
+
   it('serializes same-table writes so concurrent duplicate override requests only create one record', async () => {
     let resolveCreate = (_value: { recordId: string; fields: Record<string, unknown> }) => undefined;
     const createRecord = vi.fn().mockImplementation(

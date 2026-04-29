@@ -102,6 +102,23 @@ function createRegistry() {
         },
         requiredFields: ['auditId', 'commandType', 'roomNumber', 'actor', 'source', 'reason', 'idempotencyKey', 'correlationId', 'occurredAt', 'domainEventTypes', 'schemaVersion'],
         updateAllowedFields: []
+      },
+      projectionStatus: {
+        enabled: true,
+        target: { appToken: 'app_token_pms', tableId: 'projection_status_table' },
+        fieldMap: {
+          backendId: 'BackendId',
+          projectionName: 'ProjectionName',
+          aggregateKey: 'AggregateKey',
+          status: 'Status',
+          attemptCount: 'AttemptCount',
+          lastProjectedAt: 'LastProjectedAt',
+          lastErrorSummary: 'LastErrorSummary',
+          updatedAt: 'UpdatedAt',
+          schemaVersion: 'SchemaVersion'
+        },
+        requiredFields: ['backendId', 'projectionName', 'aggregateKey', 'status', 'attemptCount', 'updatedAt', 'schemaVersion'],
+        updateAllowedFields: ['projectionName', 'aggregateKey', 'status', 'attemptCount', 'lastProjectedAt', 'lastErrorSummary', 'updatedAt', 'schemaVersion']
       }
     }
   });
@@ -184,6 +201,22 @@ describe('dispatchPmsBaseProjectionRequest', () => {
         registry: createRegistry()
       }
     );
+    const nestedRelationshipTargetResponse = await dispatchPmsBaseProjectionRequest(
+      {
+        method: 'POST',
+        pathname: '/providers/pms-base',
+        rawBody: JSON.stringify({
+          operation: 'pms_base_upsert_housekeeping_task_projection',
+          taskId: 'task-nested-record-id-target',
+          fields: { roomNumber: '101' },
+          relationships: { recordId: 'rec_room_101' }
+        })
+      },
+      {
+        bitableClient: createClient(),
+        registry: createRegistry()
+      }
+    );
     const arbitraryResponse = await dispatchPmsBaseProjectionRequest(
       {
         method: 'POST',
@@ -216,6 +249,14 @@ describe('dispatchPmsBaseProjectionRequest', () => {
         code: 400,
         message: 'invalid_payload',
         errors: ['target_not_allowed:target']
+      }
+    });
+    expect(nestedRelationshipTargetResponse).toEqual({
+      statusCode: 400,
+      body: {
+        code: 400,
+        message: 'invalid_payload',
+        errors: ['target_not_allowed:recordId']
       }
     });
     expect(arbitraryResponse).toEqual({
@@ -566,6 +607,111 @@ describe('dispatchPmsBaseProjectionRequest', () => {
         ProjectionStatus: 'Pruned',
         PrunedAt: 1777334580000,
         SchemaVersion: 'pms-dashboard-mvp-v1'
+      }
+    });
+  });
+
+  it('upserts projection status rows through pms-base dispatch without leaking raw error details', async () => {
+    const bitableClient = createClient();
+
+    const response = await dispatchPmsBaseProjectionRequest(
+      {
+        method: 'POST',
+        pathname: '/providers/pms-base',
+        headers: { authorization: 'Bearer pms-base-token-1' },
+        rawBody: JSON.stringify({
+          operation: 'pms_base_upsert_projection_status',
+          projectionKey: 'projection-status:inventoryCalendar:inventory-room-A2',
+          fields: {
+            projectionName: '库存日历',
+            aggregateKey: 'inventory-room-A2',
+            status: 'failed',
+            attemptCount: 2,
+            lastErrorSummary: 'adapter failed appToken=app_token_pms callback=https://feishu.example/webhook/callback?token=secret-token',
+            updatedAt: '2026-04-28T00:01:00.000Z',
+            schemaVersion: 'pms-dashboard-mvp-v1'
+          }
+        })
+      },
+      { bitableClient, registry: createRegistry(), authToken: 'pms-base-token-1' }
+    );
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toMatchObject({
+      code: 0,
+      operation: 'pms_base_upsert_projection_status',
+      status: 'created',
+      projection: {
+        backendId: 'projection-status:inventoryCalendar:inventory-room-A2',
+        status: 'failed'
+      }
+    });
+    expect(String((response.body.projection as Record<string, unknown>).lastErrorSummary)).not.toMatch(/appToken|app_token|callback|secret-token/);
+    expect(bitableClient.createRecord).toHaveBeenCalledWith({
+      appToken: 'app_token_pms',
+      tableId: 'projection_status_table',
+      fields: {
+        BackendId: 'projection-status:inventoryCalendar:inventory-room-A2',
+        ProjectionName: '库存日历',
+        AggregateKey: 'inventory-room-A2',
+        Status: 'failed',
+        AttemptCount: 2,
+        LastErrorSummary: 'adapter failed [redacted-secret] [redacted-secret]',
+        UpdatedAt: 1777334460000,
+        SchemaVersion: 'pms-dashboard-mvp-v1'
+      }
+    });
+
+    const blocked = await dispatchPmsBaseProjectionRequest(
+      {
+        method: 'POST',
+        pathname: '/providers/pms-base',
+        rawBody: JSON.stringify({
+          operation: 'pms_base_upsert_projection_status',
+          projectionKey: 'projection-status:inventoryCalendar:inventory-room-A2',
+          fields: { recordId: 'rec_projection_status_1' }
+        })
+      },
+      { bitableClient: createClient(), registry: createRegistry() }
+    );
+
+    expect(blocked).toEqual({
+      statusCode: 400,
+      body: {
+        code: 400,
+        message: 'invalid_payload',
+        errors: ['target_not_allowed:recordId']
+      }
+    });
+
+    const blockedSecret = await dispatchPmsBaseProjectionRequest(
+      {
+        method: 'POST',
+        pathname: '/providers/pms-base',
+        rawBody: JSON.stringify({
+          operation: 'pms_base_upsert_projection_status',
+          projectionKey: 'projection-status:inventoryCalendar:inventory-room-A2',
+          callbackUrl: 'https://feishu.example/webhook/callback?token=secret-token',
+          fields: {
+            projectionName: '库存日历',
+            aggregateKey: 'inventory-room-A2',
+            status: 'failed',
+            attemptCount: 2,
+            token: 'secret-token',
+            updatedAt: '2026-04-28T00:01:00.000Z',
+            schemaVersion: 'pms-dashboard-mvp-v1'
+          }
+        })
+      },
+      { bitableClient: createClient(), registry: createRegistry() }
+    );
+
+    expect(blockedSecret).toEqual({
+      statusCode: 400,
+      body: {
+        code: 400,
+        message: 'invalid_payload',
+        errors: ['target_not_allowed:callbackUrl']
       }
     });
   });

@@ -81,6 +81,37 @@
         "validateFormSchemaByDefault": true,
         "rejectUnmappedFields": true
       }
+    },
+    "pms-operation-request": {
+      "enabled": true,
+      "delivery": {
+        "kind": "ai_pms_operation_request_intake"
+      },
+      "fieldMap": {
+        "action": "action",
+        "操作类型": "action",
+        "roomNumber": "roomNumber",
+        "房号": "roomNumber",
+        "reservationId": "reservationId",
+        "预订号": "reservationId",
+        "operator": "operator",
+        "操作人": "operator",
+        "reason": "reason",
+        "原因": "reason",
+        "notes": "notes",
+        "备注": "notes",
+        "requestedAt": "requestedAt",
+        "请求时间": "requestedAt"
+      },
+      "fixedFields": {
+        "source": "external_form",
+        "ingress": "formKey:pms-operation-request",
+        "schemaVersion": "pms-operation-request-intake-v1"
+      },
+      "policy": {
+        "validateFormSchemaByDefault": false,
+        "rejectUnmappedFields": true
+      }
     }
   }
 }

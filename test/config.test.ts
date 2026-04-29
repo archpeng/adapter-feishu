@@ -32,7 +32,12 @@ describe('loadConfig', () => {
       allowTargetOverride: false,
       userIdType: 'user_id',
       defaultTarget: undefined,
-      registryPath: undefined
+      registryPath: undefined,
+      operationRequestIntakeUrl: undefined,
+      operationRequestIntakeAuthToken: undefined,
+      operationRequestIntakeAuthHeader: 'X-AI-PMS-CALLBACK-TOKEN',
+      operationRequestIntakeAuthEnvName: 'AI_PMS_CALLBACK_TOKEN',
+      operationRequestIntakeTimeoutMs: 5000
     });
     expect(config.pmsBase).toEqual({
       webhookAuthToken: undefined,
@@ -85,6 +90,8 @@ describe('loadConfig', () => {
       ADAPTER_FEISHU_FORM_DEFAULT_TABLE_ID: 'tbl_1',
       ADAPTER_FEISHU_FORM_DEFAULT_FORM_ID: 'form_1',
       ADAPTER_FEISHU_FORM_REGISTRY_PATH: 'config/form-bindings.example.json',
+      ADAPTER_FEISHU_PMS_OPERATION_REQUEST_INTAKE_URL: 'http://127.0.0.1:8792/pms/operation-requests/intake',
+      ADAPTER_FEISHU_PMS_OPERATION_REQUEST_INTAKE_TIMEOUT_MS: '3200',
       ADAPTER_FEISHU_PMS_BASE_WEBHOOK_AUTH_TOKEN: 'pms-base-token-1',
       ADAPTER_FEISHU_PMS_BASE_REGISTRY_PATH: 'config/pms-base-projections.example.json',
       ADAPTER_FEISHU_DEDUPE_TTL_SECONDS: '60',
@@ -120,7 +127,12 @@ describe('loadConfig', () => {
         tableId: 'tbl_1',
         formId: 'form_1'
       },
-      registryPath: 'config/form-bindings.example.json'
+      registryPath: 'config/form-bindings.example.json',
+      operationRequestIntakeUrl: 'http://127.0.0.1:8792/pms/operation-requests/intake',
+      operationRequestIntakeAuthToken: 'callback-token-1',
+      operationRequestIntakeAuthHeader: 'X-AI-PMS-CALLBACK-TOKEN',
+      operationRequestIntakeAuthEnvName: 'AI_PMS_CALLBACK_TOKEN',
+      operationRequestIntakeTimeoutMs: 3200
     });
     expect(config.pmsBase).toEqual({
       webhookAuthToken: 'pms-base-token-1',

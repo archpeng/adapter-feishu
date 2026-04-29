@@ -1,5 +1,9 @@
 import type { FeishuUserIdType } from './channels/feishu/bitableClient.js';
 import { AI_CONVERSATION_AUTH_ENV_NAME, AI_CONVERSATION_AUTH_HEADER } from './conversation/forwarder.js';
+import {
+  AI_PMS_OPERATION_REQUEST_INTAKE_AUTH_ENV_NAME,
+  AI_PMS_OPERATION_REQUEST_INTAKE_AUTH_HEADER
+} from './forms/operationRequestIntakeForwarder.js';
 
 export type IngressMode = 'webhook' | 'long_connection';
 
@@ -35,6 +39,11 @@ export interface AdapterConfig {
     userIdType: FeishuUserIdType;
     defaultTarget?: FeishuFormDefaultTargetConfig;
     registryPath?: string;
+    operationRequestIntakeUrl?: string;
+    operationRequestIntakeAuthToken?: string;
+    operationRequestIntakeAuthHeader: typeof AI_PMS_OPERATION_REQUEST_INTAKE_AUTH_HEADER;
+    operationRequestIntakeAuthEnvName: typeof AI_PMS_OPERATION_REQUEST_INTAKE_AUTH_ENV_NAME;
+    operationRequestIntakeTimeoutMs: number;
   };
   pmsBase: {
     webhookAuthToken?: string;
@@ -197,6 +206,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   const defaultProvider = env.ADAPTER_FEISHU_DEFAULT_PROVIDER?.trim() || providerKeys[0];
   const pmsCheckoutCallbackUrl = parseOptionalUrl(env, 'ADAPTER_FEISHU_PMS_CHECKOUT_CALLBACK_URL');
   const pmsCheckoutInboundTurnUrl = parseOptionalUrl(env, 'ADAPTER_FEISHU_PMS_CHECKOUT_INBOUND_TURN_URL');
+  const pmsOperationRequestIntakeUrl = parseOptionalUrl(env, 'ADAPTER_FEISHU_PMS_OPERATION_REQUEST_INTAKE_URL');
   const pmsCheckoutCallbackToken = env.AI_PMS_CALLBACK_TOKEN?.trim() || undefined;
   const conversationTurnUrl = parseOptionalUrl(env, 'ADAPTER_FEISHU_CONVERSATION_TURN_URL');
   const conversationInboundAuthToken = env.AI_CONVERSATION_INBOUND_AUTH_TOKEN?.trim() || undefined;
@@ -217,6 +227,10 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     throw new Error(
       'AI_PMS_CALLBACK_TOKEN must be set when ADAPTER_FEISHU_PMS_CHECKOUT_CALLBACK_URL or ADAPTER_FEISHU_PMS_CHECKOUT_INBOUND_TURN_URL is set'
     );
+  }
+
+  if (pmsOperationRequestIntakeUrl && !pmsCheckoutCallbackToken) {
+    throw new Error('AI_PMS_CALLBACK_TOKEN must be set when ADAPTER_FEISHU_PMS_OPERATION_REQUEST_INTAKE_URL is set');
   }
 
   if (pmsCheckoutInboundTurnUrl && adapterAllowedChatIds.length === 0) {
@@ -260,7 +274,12 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       allowTargetOverride: parseBoolean(env, 'ADAPTER_FEISHU_FORM_ALLOW_TARGET_OVERRIDE', false),
       userIdType: parseFeishuUserIdType(env, 'ADAPTER_FEISHU_FORM_USER_ID_TYPE', 'user_id'),
       defaultTarget: parseOptionalFormDefaultTarget(env),
-      registryPath: env.ADAPTER_FEISHU_FORM_REGISTRY_PATH?.trim() || undefined
+      registryPath: env.ADAPTER_FEISHU_FORM_REGISTRY_PATH?.trim() || undefined,
+      operationRequestIntakeUrl: pmsOperationRequestIntakeUrl,
+      operationRequestIntakeAuthToken: pmsCheckoutCallbackToken,
+      operationRequestIntakeAuthHeader: AI_PMS_OPERATION_REQUEST_INTAKE_AUTH_HEADER,
+      operationRequestIntakeAuthEnvName: AI_PMS_OPERATION_REQUEST_INTAKE_AUTH_ENV_NAME,
+      operationRequestIntakeTimeoutMs: parsePositiveInteger(env, 'ADAPTER_FEISHU_PMS_OPERATION_REQUEST_INTAKE_TIMEOUT_MS', 5_000)
     },
     pmsBase: {
       webhookAuthToken: env.ADAPTER_FEISHU_PMS_BASE_WEBHOOK_AUTH_TOKEN?.trim() || undefined,
