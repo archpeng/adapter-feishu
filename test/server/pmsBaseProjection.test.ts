@@ -59,6 +59,22 @@ function createRegistry() {
         requiredFields: ['reservationCode', 'guestLabel', 'arrivalDate', 'departureDate', 'status', 'schemaVersion'],
         updateAllowedFields: ['roomNumber', 'guestLabel', 'arrivalDate', 'departureDate', 'status', 'schemaVersion']
       },
+      stays: {
+        enabled: true,
+        target: { appToken: 'app_token_pms', tableId: 'stays_table' },
+        fieldMap: {
+          backendId: 'BackendId',
+          reservationCode: 'ReservationCode',
+          roomNumber: 'RoomNumber',
+          relatedRoom: 'RelatedRoom',
+          status: 'Status',
+          checkedInAt: 'CheckedInAt',
+          checkedOutAt: 'CheckedOutAt',
+          schemaVersion: 'SchemaVersion'
+        },
+        requiredFields: ['backendId', 'reservationCode', 'roomNumber', 'status', 'checkedInAt', 'schemaVersion'],
+        updateAllowedFields: ['reservationCode', 'roomNumber', 'relatedRoom', 'status', 'checkedInAt', 'checkedOutAt', 'schemaVersion']
+      },
       inventoryCalendar: {
         enabled: true,
         target: { appToken: 'app_token_pms', tableId: 'inventory_table' },
@@ -488,6 +504,87 @@ describe('dispatchPmsBaseProjectionRequest', () => {
         DepartureDate: 1777507200000,
         Status: 'Booked',
         SchemaVersion: 'pms-dashboard-mvp-v1'
+      }
+    });
+  });
+
+  it('upserts stay rows through pms-base dispatch and rejects unsafe stay targets', async () => {
+    const bitableClient = createClient();
+
+    const response = await dispatchPmsBaseProjectionRequest(
+      {
+        method: 'POST',
+        pathname: '/providers/pms-base',
+        headers: { authorization: 'Bearer pms-base-token-1' },
+        rawBody: JSON.stringify({
+          operation: 'pms_base_upsert_stay_projection',
+          stayId: 'stay-R-1001-room-1001',
+          fields: {
+            reservationCode: 'R-1001',
+            roomNumber: '1001',
+            status: 'inHouse',
+            checkedInAt: '2026-04-29T00:00:00.000Z',
+            schemaVersion: 'pms-dashboard-mvp-v1'
+          }
+        })
+      },
+      {
+        bitableClient,
+        registry: createRegistry(),
+        authToken: 'pms-base-token-1'
+      }
+    );
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toMatchObject({
+      code: 0,
+      operation: 'pms_base_upsert_stay_projection',
+      status: 'created',
+      projection: {
+        backendId: 'stay-R-1001-room-1001',
+        reservationCode: 'R-1001',
+        roomNumber: '1001',
+        status: 'inHouse'
+      }
+    });
+    expect(bitableClient.createRecord).toHaveBeenCalledWith({
+      appToken: 'app_token_pms',
+      tableId: 'stays_table',
+      fields: {
+        BackendId: 'stay-R-1001-room-1001',
+        ReservationCode: 'R-1001',
+        RoomNumber: '1001',
+        Status: 'inHouse',
+        CheckedInAt: 1777420800000,
+        SchemaVersion: 'pms-dashboard-mvp-v1'
+      }
+    });
+
+    const blocked = await dispatchPmsBaseProjectionRequest(
+      {
+        method: 'POST',
+        pathname: '/providers/pms-base',
+        rawBody: JSON.stringify({
+          operation: 'pms_base_upsert_stay_projection',
+          stayId: 'stay-blocked',
+          fields: {
+            reservationCode: 'R-blocked',
+            roomNumber: '1001',
+            status: 'inHouse',
+            checkedInAt: '2026-04-29T00:00:00.000Z',
+            tenantId: 'tenant-secret'
+          }
+        })
+      },
+      { bitableClient: createClient(), registry: createRegistry() }
+    );
+
+    expect(blocked).toEqual({
+      statusCode: 400,
+      body: {
+        code: 400,
+        message: 'invalid_payload',
+        errors: ['target_not_allowed:tenantId']
       }
     });
   });

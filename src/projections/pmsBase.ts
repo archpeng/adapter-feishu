@@ -14,6 +14,7 @@ export type PmsBaseProjectionBindingKey =
   | 'housekeepingTasks'
   | 'maintenanceTickets'
   | 'reservations'
+  | 'stays'
   | 'inventoryCalendar'
   | 'operationLogs'
   | 'projectionStatus';
@@ -121,6 +122,12 @@ export interface PmsBaseUpsertReservationProjectionRequest {
   relationships?: Pick<PmsBaseProjectionRelationshipInputs, 'roomNumber'>;
 }
 
+export interface PmsBaseUpsertStayProjectionRequest {
+  stayId: string;
+  fields: Record<string, unknown>;
+  relationships?: Pick<PmsBaseProjectionRelationshipInputs, 'roomNumber'>;
+}
+
 export interface PmsBaseUpsertInventoryCalendarProjectionRequest {
   intervalKey: string;
   fields: Record<string, unknown>;
@@ -180,6 +187,7 @@ export interface PmsBaseUpdateProjectionResult {
     | 'pms_base_upsert_housekeeping_task_projection'
     | 'pms_base_upsert_maintenance_ticket_projection'
     | 'pms_base_upsert_reservation_projection'
+    | 'pms_base_upsert_stay_projection'
     | 'pms_base_upsert_inventory_calendar_projection'
     | 'pms_base_prune_inventory_calendar_projection'
     | 'pms_base_upsert_projection_status'
@@ -225,6 +233,7 @@ const ALL_BINDING_KEYS: PmsBaseProjectionBindingKey[] = [
   'housekeepingTasks',
   'maintenanceTickets',
   'reservations',
+  'stays',
   'inventoryCalendar',
   'operationLogs',
   'projectionStatus'
@@ -696,6 +705,28 @@ export async function pms_base_upsert_reservation_projection(
     duplicateCode: 'duplicate_reservation_code',
     recordIdMissingCode: 'reservation_projection_record_id_missing',
     operation: 'pms_base_upsert_reservation_projection'
+  });
+}
+
+export async function pms_base_upsert_stay_projection(
+  request: PmsBaseUpsertStayProjectionRequest,
+  deps: PmsBaseProjectionDeps
+): Promise<PmsBaseUpdateProjectionResult> {
+  const stayId = normalizeString(request.stayId);
+  if (!stayId) {
+    throw new PmsBaseProjectionError('invalid_payload', 'stay_id_required');
+  }
+
+  return upsertProjectionByBusinessField({
+    deps,
+    bindingKey: 'stays',
+    uniqueBusinessField: 'backendId',
+    uniqueValue: stayId,
+    fields: request.fields,
+    relationships: roomRelationshipPlans(request.fields, request.relationships),
+    duplicateCode: 'duplicate_stay_id',
+    recordIdMissingCode: 'stay_projection_record_id_missing',
+    operation: 'pms_base_upsert_stay_projection'
   });
 }
 
@@ -1175,8 +1206,16 @@ async function resolveRelationshipFields(
       warnings.push(relationWarning(
         'relationship_business_key_rejected_record_id_shape',
         `relationship_business_key_rejected_record_id_shape:${plan.relationField}`,
-        plan,
-        businessValue
+        plan
+      ));
+      continue;
+    }
+
+    if (looksLikeUnsafeProjectionStatusText(businessValue)) {
+      warnings.push(relationWarning(
+        'relationship_business_key_rejected_unsafe_value',
+        `relationship_business_key_rejected_unsafe_value:${plan.relationField}`,
+        plan
       ));
       continue;
     }
@@ -1732,6 +1771,7 @@ function isPmsBaseProjectionBindingKey(value: string): value is PmsBaseProjectio
     value === 'housekeepingTasks' ||
     value === 'maintenanceTickets' ||
     value === 'reservations' ||
+    value === 'stays' ||
     value === 'inventoryCalendar' ||
     value === 'operationLogs' ||
     value === 'projectionStatus'

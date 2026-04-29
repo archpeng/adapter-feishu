@@ -18,6 +18,7 @@ import {
   pms_base_upsert_projection_status,
   pms_base_upsert_reservation_projection,
   pms_base_upsert_room_projection,
+  pms_base_upsert_stay_projection,
   pms_base_update_operation_result,
   pms_base_update_room_projection,
   type PmsBaseProjectionRegistry
@@ -296,6 +297,22 @@ function createChineseRegistry(): PmsBaseProjectionRegistry {
         requiredFields: ['reservationCode', 'guestLabel', 'arrivalDate', 'departureDate', 'status', 'schemaVersion'],
         updateAllowedFields: ['backendId', 'roomNumber', 'relatedRoom', 'guestLabel', 'arrivalDate', 'departureDate', 'status', 'schemaVersion']
       },
+      stays: {
+        enabled: true,
+        target: { appToken: 'app_token_pms', tableId: 'stays_table' },
+        fieldMap: {
+          backendId: '后端ID',
+          reservationCode: '预订号',
+          roomNumber: '房号',
+          relatedRoom: '关联房间',
+          status: '入住状态',
+          checkedInAt: '入住时间',
+          checkedOutAt: '离店时间',
+          schemaVersion: '版本'
+        },
+        requiredFields: ['backendId', 'reservationCode', 'roomNumber', 'status', 'checkedInAt', 'schemaVersion'],
+        updateAllowedFields: ['reservationCode', 'roomNumber', 'relatedRoom', 'status', 'checkedInAt', 'checkedOutAt', 'schemaVersion']
+      },
       inventoryCalendar: {
         enabled: true,
         target: { appToken: 'app_token_pms', tableId: 'inventory_table' },
@@ -373,6 +390,7 @@ function createChineseClient(options: {
   maintenanceTickets?: Array<{ recordId?: string; fields: Record<string, unknown> }>;
   reservations?: Array<{ recordId?: string; fields: Record<string, unknown> }>;
   inventoryCalendar?: Array<{ recordId?: string; fields: Record<string, unknown> }>;
+  stays?: Array<{ recordId?: string; fields: Record<string, unknown> }>;
   projectionStatus?: Array<{ recordId?: string; fields: Record<string, unknown> }>;
   missingFieldName?: string;
   createRecord?: ReturnType<typeof vi.fn>;
@@ -388,6 +406,7 @@ function createChineseClient(options: {
     ['housekeeping_table', options.housekeepingTasks ?? []],
     ['maintenance_table', options.maintenanceTickets ?? []],
     ['reservation_table', options.reservations ?? []],
+    ['stays_table', options.stays ?? []],
     ['inventory_table', options.inventoryCalendar ?? []],
     ['projection_status_table', options.projectionStatus ?? []]
   ]);
@@ -1083,6 +1102,136 @@ describe('PMS Base projection wrappers', () => {
     });
   });
 
+  it('upserts stay projections by backend stay id and resolves linked room by 房号', async () => {
+    const createRecord = vi.fn().mockImplementation((request) => Promise.resolve({
+      recordId: 'rec_stay_created',
+      fields: request.fields
+    }));
+    const updateRecord = vi.fn().mockImplementation((request) => Promise.resolve({
+      recordId: request.recordId,
+      fields: request.fields
+    }));
+    const { registry, bitableClient } = createChineseClient({
+      rooms: [{ recordId: 'rec_room_A1', fields: { 房号: 'A1' } }],
+      createRecord,
+      updateRecord
+    });
+
+    const result = await pms_base_upsert_stay_projection(
+      {
+        stayId: 'stay-res-1-room-A1',
+        fields: {
+          reservationCode: 'R-A1',
+          roomNumber: 'A1',
+          status: 'inHouse',
+          checkedInAt: '2026-04-28T00:00:00.000Z',
+          schemaVersion: PMS_BASE_PROJECTION_SCHEMA_VERSION
+        }
+      },
+      { registry, bitableClient }
+    );
+
+    expect(result).toMatchObject({
+      operation: 'pms_base_upsert_stay_projection',
+      status: 'created',
+      relationStatus: 'fresh',
+      warnings: [],
+      projection: {
+        backendId: 'stay-res-1-room-A1',
+        reservationCode: 'R-A1',
+        roomNumber: 'A1',
+        status: 'inHouse',
+        relatedRoom: ['rec_room_A1']
+      }
+    });
+    expect(createRecord).toHaveBeenCalledWith({
+      appToken: 'app_token_pms',
+      tableId: 'stays_table',
+      fields: {
+        后端ID: 'stay-res-1-room-A1',
+        预订号: 'R-A1',
+        房号: 'A1',
+        入住状态: 'inHouse',
+        入住时间: 1777334400000,
+        版本: PMS_BASE_PROJECTION_SCHEMA_VERSION
+      }
+    });
+    expect(updateRecord).toHaveBeenCalledWith({
+      appToken: 'app_token_pms',
+      tableId: 'stays_table',
+      recordId: 'rec_stay_created',
+      fields: { 关联房间: ['rec_room_A1'] }
+    });
+  });
+
+  it('keeps stay row fallback fields when linked-room resolution is stale or caller-supplied', async () => {
+    const missingRoom = await pms_base_upsert_stay_projection(
+      {
+        stayId: 'stay-missing-room',
+        fields: {
+          reservationCode: 'R-missing-room',
+          roomNumber: 'A-missing',
+          status: 'inHouse',
+          checkedInAt: '2026-04-28T00:00:00.000Z',
+          schemaVersion: PMS_BASE_PROJECTION_SCHEMA_VERSION
+        }
+      },
+      { registry: createChineseRegistry(), bitableClient: createChineseClient().bitableClient }
+    );
+
+    expect(missingRoom).toMatchObject({
+      status: 'created',
+      relationStatus: 'stale',
+      warnings: [{ code: 'linked_record_related_record_missing', businessValue: 'A-missing' }],
+      projection: {
+        backendId: 'stay-missing-room',
+        reservationCode: 'R-missing-room',
+        roomNumber: 'A-missing',
+        status: 'inHouse'
+      }
+    });
+
+    await expect(
+      pms_base_upsert_stay_projection(
+        {
+          stayId: 'stay-raw-linked-field',
+          fields: {
+            reservationCode: 'R-raw-linked-field',
+            roomNumber: 'A1',
+            relatedRoom: ['rec_room_A1'],
+            status: 'inHouse',
+            checkedInAt: '2026-04-28T00:00:00.000Z',
+            schemaVersion: PMS_BASE_PROJECTION_SCHEMA_VERSION
+          }
+        },
+        { registry: createChineseRegistry(), bitableClient: createChineseClient({ rooms: [{ recordId: 'rec_room_A1', fields: { 房号: 'A1' } }] }).bitableClient }
+      )
+    ).rejects.toThrow(/relationship_field_not_allowed:relatedRoom/);
+
+    const rawRelationshipValue = await pms_base_upsert_stay_projection(
+      {
+        stayId: 'stay-raw-relationship-value',
+        fields: {
+          reservationCode: 'R-raw-relationship-value',
+          roomNumber: 'A1',
+          status: 'inHouse',
+          checkedInAt: '2026-04-28T00:00:00.000Z',
+          schemaVersion: PMS_BASE_PROJECTION_SCHEMA_VERSION
+        },
+        relationships: { roomNumber: 'rec_room_A1' }
+      },
+      { registry: createChineseRegistry(), bitableClient: createChineseClient({ rooms: [{ recordId: 'rec_room_A1', fields: { 房号: 'A1' } }] }).bitableClient }
+    );
+
+    expect(rawRelationshipValue).toMatchObject({
+      status: 'created',
+      relationStatus: 'stale',
+      warnings: [{ code: 'relationship_business_key_rejected_record_id_shape', relationField: 'relatedRoom' }],
+      projection: { backendId: 'stay-raw-relationship-value', roomNumber: 'A1' }
+    });
+    expect(JSON.stringify(rawRelationshipValue.warnings)).not.toContain('rec_room_A1');
+  });
+
   it('upserts and prunes inventory calendar projections by backend interval key', async () => {
     const registry = createChineseRegistry();
     const createRecord = vi.fn().mockImplementation((request) => Promise.resolve({
@@ -1742,6 +1891,20 @@ describe('PMS Base projection wrappers', () => {
     const parsed = JSON.parse(raw) as { bindings?: Record<string, unknown> };
     const registry = parsePmsBaseProjectionRegistry(parsed, 'pms-base-projections.example.json');
 
+    expect(registry.bindings.stays).toMatchObject({
+      enabled: true,
+      target: { appToken: 'example_pms_base_app_token', tableId: 'example_stays_table' },
+      fieldMap: {
+        backendId: '后端ID',
+        reservationCode: '预订号',
+        roomNumber: '房号',
+        relatedRoom: '关联房间',
+        status: '入住状态',
+        checkedInAt: '入住时间',
+        checkedOutAt: '离店时间',
+        schemaVersion: '版本'
+      }
+    });
     expect(registry.bindings.projectionStatus).toMatchObject({
       enabled: true,
       target: { appToken: 'example_pms_base_app_token', tableId: 'example_projection_status_table' },

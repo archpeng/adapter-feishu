@@ -20,6 +20,7 @@ import {
   pms_base_upsert_projection_status,
   pms_base_upsert_reservation_projection,
   pms_base_upsert_room_projection,
+  pms_base_upsert_stay_projection,
   pms_base_update_operation_result,
   pms_base_update_room_projection
 } from '../projections/pmsBase.js';
@@ -235,6 +236,22 @@ export async function dispatchPmsBaseProjectionRequest(
       }
       const result = await pms_base_upsert_reservation_projection(
         { reservationCode, fields, relationships: relationshipInputsField(payload) },
+        { bitableClient: deps.bitableClient, registry: deps.registry, now: deps.now }
+      );
+      return { statusCode: 200, body: { code: 0, ...result } };
+    }
+
+    if (operation === 'pms_base_upsert_stay_projection') {
+      const stayId = stringField(payload, 'stayId');
+      const fields = recordField(payload, 'fields');
+      if (!stayId || !fields) {
+        return invalidPayloadResponse([
+          ...(!stayId ? ['stay_id_required'] : []),
+          ...(!fields ? ['fields_required'] : [])
+        ]);
+      }
+      const result = await pms_base_upsert_stay_projection(
+        { stayId, fields, relationships: relationshipInputsField(payload) },
         { bitableClient: deps.bitableClient, registry: deps.registry, now: deps.now }
       );
       return { statusCode: 200, body: { code: 0, ...result } };

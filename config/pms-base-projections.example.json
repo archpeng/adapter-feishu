@@ -201,6 +201,40 @@
         "schemaVersion"
       ]
     },
+    "stays": {
+      "enabled": true,
+      "target": {
+        "appToken": "example_pms_base_app_token",
+        "tableId": "example_stays_table"
+      },
+      "fieldMap": {
+        "backendId": "后端ID",
+        "reservationCode": "预订号",
+        "roomNumber": "房号",
+        "relatedRoom": "关联房间",
+        "status": "入住状态",
+        "checkedInAt": "入住时间",
+        "checkedOutAt": "离店时间",
+        "schemaVersion": "版本"
+      },
+      "requiredFields": [
+        "backendId",
+        "reservationCode",
+        "roomNumber",
+        "status",
+        "checkedInAt",
+        "schemaVersion"
+      ],
+      "updateAllowedFields": [
+        "reservationCode",
+        "roomNumber",
+        "relatedRoom",
+        "status",
+        "checkedInAt",
+        "checkedOutAt",
+        "schemaVersion"
+      ]
+    },
     "inventoryCalendar": {
       "enabled": true,
       "target": {
