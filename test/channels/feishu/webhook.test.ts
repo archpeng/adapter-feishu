@@ -76,10 +76,12 @@ describe('dispatchWebhookRequest', () => {
         turnId: 'msg-1',
         channel: 'feishu',
         text: 'hello',
-        target: expect.objectContaining({ chatId: 'oc-chat-1' })
+        target: expect.objectContaining({ chatId: 'oc-chat-1', messageId: 'msg-1' })
       }),
       expect.objectContaining({ source: 'webhook' })
     );
+    const forwardedTurn = handler.mock.calls[0]?.[0];
+    expect(forwardedTurn.target.threadId).toBeUndefined();
   });
 
   it('accepts signed requests when webhook secret matches', async () => {

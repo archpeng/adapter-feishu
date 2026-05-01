@@ -114,8 +114,7 @@ export function normalizeFeishuMessageEvent(raw: FeishuEventEnvelope): InboundTu
     target: {
       channel: 'feishu',
       chatId: message?.chat_id,
-      messageId: message?.message_id,
-      threadId: message?.chat_id
+      messageId: message?.message_id
     },
     text,
     rawEvent: toJsonRecord(raw),
