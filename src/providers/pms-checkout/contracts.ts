@@ -123,22 +123,22 @@ export type PmsCheckoutProjectionEnvelope = JsonRecord & {
 
 export function pmsCheckoutFacts(input: PmsCheckoutDryRunCardInput): ProviderFact[] {
   return [
-    { label: 'Room', value: `${input.roomNumber} (${input.roomId})` },
-    { label: 'Current status', value: statusText(input.currentStatus) },
-    { label: 'Next status', value: statusText(input.nextStatus) },
-    { label: 'Task preview', value: input.taskPreview },
-    { label: 'Reason', value: input.reason },
-    { label: 'Actor', value: actorText(input.actor) },
-    { label: 'Correlation', value: input.correlationId },
-    { label: 'Dry-run idempotency', value: input.dryRunIdentity.idempotencyKey },
-    { label: 'Confirm idempotency', value: input.confirmIdentity.idempotencyKey }
+    { label: '房间', value: `${input.roomNumber} (${input.roomId})` },
+    { label: '当前状态', value: statusText(input.currentStatus) },
+    { label: '目标状态', value: statusText(input.nextStatus) },
+    { label: '保洁任务预览', value: input.taskPreview },
+    { label: '原因', value: input.reason },
+    { label: '操作人', value: actorText(input.actor) },
+    { label: '关联号', value: input.correlationId },
+    { label: '预演幂等键', value: input.dryRunIdentity.idempotencyKey },
+    { label: '确认幂等键', value: input.confirmIdentity.idempotencyKey }
   ];
 }
 
 export function pmsCheckoutConfirmAction(input: PmsCheckoutDryRunCardInput, pendingId: string): ProviderAction {
   return {
     actionId: PMS_CHECKOUT_CONFIRM_ACTION_ID,
-    label: 'Confirm checkout',
+    label: '确认退房',
     style: 'primary',
     payload: {
       providerKey: PMS_CHECKOUT_PROVIDER_KEY,
@@ -589,11 +589,31 @@ function parseEventTypes(values: readonly unknown[]): readonly ('RoomCheckedOut'
 }
 
 function statusText(status: PmsRoomStatusProjection): string {
-  return `${status.occupancy}/${status.cleaning}/${status.sale}`;
+  return `${statusValueText(status.occupancy)}/${statusValueText(status.cleaning)}/${statusValueText(status.sale)}`;
+}
+
+function statusValueText(value: string): string {
+  const normalized = value.trim().toLowerCase();
+  const mapping: Record<string, string> = {
+    vacant: '空房',
+    dueout: '预离',
+    inhouse: '在住',
+    occupied: '在住',
+    clean: '干净',
+    dirty: '脏房',
+    cleaning: '清洁中',
+    inspection: '待查',
+    rework: '返工',
+    sellable: '可售',
+    stopsell: '停售',
+    outoforder: '停用',
+  };
+  return mapping[normalized] ?? value;
 }
 
 function actorText(actor: PmsCheckoutActorRef): string {
-  return actor.displayName ? `${actor.displayName} (${actor.type}:${actor.id})` : `${actor.type}:${actor.id}`;
+  const actorType = actor.type === 'human' ? '人员' : actor.type;
+  return actor.displayName ? `${actor.displayName} (${actorType}:${actor.id})` : `${actorType}:${actor.id}`;
 }
 
 function identityToRecord(identity: PmsCheckoutDryRunIdentity | PmsCheckoutConfirmIdentity): JsonRecord {

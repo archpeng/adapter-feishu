@@ -250,13 +250,13 @@ async function deliverDryRunCard(
     providerKey: PMS_CHECKOUT_PROVIDER_KEY,
     notificationId: `pms-checkout-dry-run-${input.correlationId}`,
     occurredAt: input.requestedAt,
-    title: `Checkout dry-run: room ${input.roomNumber}`,
-    summary: `PMS proposes checkout for room ${input.roomNumber}. Confirm only after human review.`,
+    title: `退房预演：房间 ${input.roomNumber}`,
+    summary: `PMS 建议为房间 ${input.roomNumber} 办理退房。请人工核对后点击确认按钮。`,
     severity: 'info',
     target,
     bodyMarkdown: [
-      '**PMS preview only.**',
-      'Confirming forwards a typed callback to ai-pms through adapter-feishu; adapter-feishu does not own PMS checkout state.'
+      '**仅 PMS 预演。**',
+      '点击确认会由 adapter-feishu 向 ai-pms 发送受控回调；adapter-feishu 不拥有 PMS 退房状态。'
     ].join('\n'),
     facts: pmsCheckoutFacts(input),
     actions: [pmsCheckoutConfirmAction(input, pendingRecord.pendingId)],
@@ -291,16 +291,17 @@ function resultToNotification(
       providerKey: PMS_CHECKOUT_PROVIDER_KEY,
       notificationId: `pms-checkout-result-${result.correlationId}`,
       occurredAt: result.occurredAt,
-      title: `Checkout failed${result.roomNumber ? `: room ${result.roomNumber}` : ''}`,
-      summary: result.errors.map((error) => `${error.code}: ${error.message}`).join('\n'),
+      title: `退房失败${result.roomNumber ? `：房间 ${result.roomNumber}` : ''}`,
+      summary: 'PMS 拒绝了退房命令，请按关联号排查。',
       severity: 'warning',
       target,
-      bodyMarkdown: 'PMS rejected the checkout command. Feishu is showing structured PMS feedback only.',
+      bodyMarkdown: '飞书仅展示 PMS 结构化反馈；PMS 仍是退房事实来源。',
       facts: [
-        ...(result.roomId ? [{ label: 'Room ID', value: result.roomId }] : []),
-        { label: 'Actor', value: actorText(result.actor) },
-        { label: 'Correlation', value: result.correlationId },
-        { label: 'Idempotency', value: result.idempotencyKey }
+        ...(result.roomId ? [{ label: '房间ID', value: result.roomId }] : []),
+        { label: '错误数量', value: String(result.errors.length) },
+        { label: '操作人', value: actorText(result.actor) },
+        { label: '关联号', value: result.correlationId },
+        { label: '幂等键', value: result.idempotencyKey }
       ],
       rawPayload,
       metadata: {
@@ -314,23 +315,23 @@ function resultToNotification(
     providerKey: PMS_CHECKOUT_PROVIDER_KEY,
     notificationId: `pms-checkout-result-${result.correlationId}`,
     occurredAt: result.occurredAt,
-    title: `Checkout complete: room ${result.roomNumber}`,
+    title: `退房完成：房间 ${result.roomNumber}`,
     summary: result.housekeepingTaskId
-      ? `PMS checked out room ${result.roomNumber} and created housekeeping task ${result.housekeepingTaskId}.`
-      : `PMS checked out room ${result.roomNumber} and recorded audit ${result.auditId}.`,
+      ? `PMS 已完成房间 ${result.roomNumber} 退房，并创建保洁任务 ${result.housekeepingTaskId}。`
+      : `PMS 已完成房间 ${result.roomNumber} 退房，并记录审计 ${result.auditId}。`,
     severity: 'info',
     target,
-    bodyMarkdown: 'PMS Core remains the canonical checkout truth; this Feishu card is a projection.',
+    bodyMarkdown: 'PMS 是退房状态的唯一事实来源；此飞书卡片仅展示投影结果。',
     facts: [
-      { label: 'Room', value: `${result.roomNumber} (${result.roomId})` },
-      { label: 'Previous status', value: statusText(result.previousStatus) },
-      { label: 'Next status', value: statusText(result.nextStatus) },
-      ...(result.housekeepingTaskId ? [{ label: 'Task', value: result.housekeepingTaskId }] : []),
-      { label: 'Audit', value: result.auditId },
-      { label: 'Events', value: result.eventTypes.join(', ') },
-      { label: 'Actor', value: actorText(result.actor) },
-      { label: 'Correlation', value: result.correlationId },
-      { label: 'Idempotency', value: result.idempotencyKey }
+      { label: '房间', value: `${result.roomNumber} (${result.roomId})` },
+      { label: '原状态', value: statusText(result.previousStatus) },
+      { label: '新状态', value: statusText(result.nextStatus) },
+      ...(result.housekeepingTaskId ? [{ label: '保洁任务', value: result.housekeepingTaskId }] : []),
+      { label: '审计记录', value: result.auditId },
+      { label: '事件', value: result.eventTypes.map(eventTypeText).join('、') },
+      { label: '操作人', value: actorText(result.actor) },
+      { label: '关联号', value: result.correlationId },
+      { label: '幂等键', value: result.idempotencyKey }
     ],
     rawPayload,
     metadata: {
@@ -570,11 +571,39 @@ function projectionTargetFromRecord(value: JsonRecord | undefined) {
 }
 
 function statusText(status: { readonly occupancy: string; readonly cleaning: string; readonly sale: string }): string {
-  return `${status.occupancy}/${status.cleaning}/${status.sale}`;
+  return `${statusValueText(status.occupancy)}/${statusValueText(status.cleaning)}/${statusValueText(status.sale)}`;
+}
+
+function statusValueText(value: string): string {
+  const normalized = value.trim().toLowerCase();
+  const mapping: Record<string, string> = {
+    vacant: '空房',
+    dueout: '预离',
+    inhouse: '在住',
+    occupied: '在住',
+    clean: '干净',
+    dirty: '脏房',
+    cleaning: '清洁中',
+    inspection: '待查',
+    rework: '返工',
+    sellable: '可售',
+    stopsell: '停售',
+    outoforder: '停用',
+  };
+  return mapping[normalized] ?? value;
+}
+
+function eventTypeText(eventType: string): string {
+  const mapping: Record<string, string> = {
+    RoomCheckedOut: '房间已退房',
+    HousekeepingTaskCreated: '已创建保洁任务',
+  };
+  return mapping[eventType] ?? eventType;
 }
 
 function actorText(actor: { readonly type: string; readonly id: string; readonly displayName?: string }): string {
-  return actor.displayName ? `${actor.displayName} (${actor.type}:${actor.id})` : `${actor.type}:${actor.id}`;
+  const actorType = actor.type === 'human' ? '人员' : actor.type;
+  return actor.displayName ? `${actor.displayName} (${actorType}:${actor.id})` : `${actorType}:${actor.id}`;
 }
 
 function stringField(value: JsonRecord, key: string): string | undefined {

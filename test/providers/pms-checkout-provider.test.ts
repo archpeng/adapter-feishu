@@ -248,11 +248,11 @@ describe('pms-checkout runtime provider', () => {
     expect(pendingStore.list(PMS_CHECKOUT_PROVIDER_KEY)).toEqual([]);
     expect(replySink.sendNotification).toHaveBeenCalledWith(
       expect.objectContaining({
-        title: 'Checkout complete: room 1001',
+        title: '退房完成：房间 1001',
         facts: expect.arrayContaining([
-          { label: 'Task', value: 'task-checkout-1001' },
-          { label: 'Audit', value: 'audit-checkout-1001' },
-          { label: 'Events', value: 'RoomCheckedOut, HousekeepingTaskCreated' }
+          { label: '保洁任务', value: 'task-checkout-1001' },
+          { label: '审计记录', value: 'audit-checkout-1001' },
+          { label: '事件', value: '房间已退房、已创建保洁任务' }
         ])
       })
     );
@@ -288,9 +288,9 @@ describe('pms-checkout runtime provider', () => {
     });
     expect(replySink.sendNotification).toHaveBeenCalledWith(
       expect.objectContaining({
-        title: 'Checkout failed: room 1001',
+        title: '退房失败：房间 1001',
         severity: 'warning',
-        summary: 'ROOM_NOT_CHECKOUTABLE: Room is not in a checkoutable occupancy state.'
+        summary: 'PMS 拒绝了退房命令，请按关联号排查。'
       })
     );
   });

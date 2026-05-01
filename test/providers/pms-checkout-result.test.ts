@@ -21,15 +21,15 @@ describe('PMS checkout result projection cards', () => {
     const card = renderPmsCheckoutResultCard(success);
 
     expect(card).toMatchObject({
-      header: { title: { content: 'Checkout complete: room 1001' } },
+      header: { title: { content: '退房完成：房间 1001' } },
       elements: expect.arrayContaining([
         expect.objectContaining({ tag: 'div' })
       ])
     });
     expect(JSON.stringify(card)).toContain('task-checkout-1001');
     expect(JSON.stringify(card)).toContain('audit-checkout-1001');
-    expect(JSON.stringify(card)).toContain('RoomCheckedOut, HousekeepingTaskCreated');
-    expect(JSON.stringify(card)).toContain('PMS Core remains the canonical checkout truth');
+    expect(JSON.stringify(card)).toContain('房间已退房、已创建保洁任务');
+    expect(JSON.stringify(card)).toContain('PMS 是退房状态的唯一事实来源');
   });
 
   it('renders PMS failures as structured Feishu feedback without pretending Feishu owns state', () => {
@@ -53,9 +53,9 @@ describe('PMS checkout result projection cards', () => {
     const card = renderPmsCheckoutResultCard(failed);
 
     expect(card).toMatchObject({
-      header: { template: 'yellow', title: { content: 'Checkout failed: room 1001' } }
+      header: { template: 'yellow', title: { content: '退房失败：房间 1001' } }
     });
-    expect(JSON.stringify(card)).toContain('ROOM_NOT_CHECKOUTABLE');
-    expect(JSON.stringify(card)).toContain('PMS rejected the checkout command');
+    expect(JSON.stringify(card)).toContain('错误数量');
+    expect(JSON.stringify(card)).toContain('PMS 拒绝了退房命令');
   });
 });

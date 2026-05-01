@@ -38,20 +38,20 @@ const dryRun: PmsCheckoutDryRunCardInput = {
 describe('PMS checkout Feishu card contract', () => {
   it('renders dry-run card facts without owning PMS transition rules', () => {
     expect(pmsCheckoutFacts(dryRun)).toEqual([
-      { label: 'Room', value: '1001 (room-1001)' },
-      { label: 'Current status', value: 'dueOut/clean/sellable' },
-      { label: 'Next status', value: 'vacant/dirty/sellable' },
-      { label: 'Task preview', value: 'Create checkout-cleaning housekeeping task.' },
-      { label: 'Reason', value: 'Guest departed and returned room cards.' },
-      { label: 'Actor', value: 'Front Desk (human:frontdesk-1)' },
-      { label: 'Correlation', value: 'corr-pms-checkout-1001' },
-      { label: 'Dry-run idempotency', value: 'idem-pms-checkout-1001-dry-run' },
-      { label: 'Confirm idempotency', value: 'idem-pms-checkout-1001-confirm' }
+      { label: '房间', value: '1001 (room-1001)' },
+      { label: '当前状态', value: '预离/干净/可售' },
+      { label: '目标状态', value: '空房/脏房/可售' },
+      { label: '保洁任务预览', value: 'Create checkout-cleaning housekeeping task.' },
+      { label: '原因', value: 'Guest departed and returned room cards.' },
+      { label: '操作人', value: 'Front Desk (人员:frontdesk-1)' },
+      { label: '关联号', value: 'corr-pms-checkout-1001' },
+      { label: '预演幂等键', value: 'idem-pms-checkout-1001-dry-run' },
+      { label: '确认幂等键', value: 'idem-pms-checkout-1001-confirm' }
     ]);
 
     const card = renderPmsCheckoutDryRunCard(dryRun, 'pending-1');
     expect(card).toMatchObject({
-      header: { title: { content: 'Checkout dry-run: room 1001' } },
+      header: { title: { content: '退房预演：房间 1001' } },
       elements: expect.arrayContaining([
         expect.objectContaining({ tag: 'action' })
       ])
@@ -63,7 +63,7 @@ describe('PMS checkout Feishu card contract', () => {
 
     expect(action).toEqual({
       actionId: PMS_CHECKOUT_CONFIRM_ACTION_ID,
-      label: 'Confirm checkout',
+      label: '确认退房',
       style: 'primary',
       payload: {
         providerKey: PMS_CHECKOUT_PROVIDER_KEY,
