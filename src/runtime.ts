@@ -272,6 +272,7 @@ export function createAdapterRuntime(
             intent: typeof forwardResult.body.intent === 'string' ? forwardResult.body.intent : undefined
           }));
         }
+        await deliverConversationReplies({ replySink, turn, forwardResult, logInboundSummary });
       } catch (error) {
         if (logInboundSummary) {
           logSafeForwardingDecision('adapter_feishu_conversation_turn_forward_failed', turn, 'ai-conversation', {
@@ -536,6 +537,59 @@ function authorizeAdapterOwnedTurn(
   }
 
   return { ok: false, reason: 'actor_not_allowed' };
+}
+
+async function deliverConversationReplies(input: {
+  replySink: ReplySink;
+  turn: InboundTurn;
+  forwardResult: { body: JsonRecord };
+  logInboundSummary: boolean;
+}): Promise<void> {
+  const replies = conversationReplyTexts(input.forwardResult.body);
+  if (replies.length === 0) {
+    return;
+  }
+
+  try {
+    await input.replySink.sendNotification({
+      providerKey: 'ai-conversation',
+      notificationId: `ai-conversation-reply-${input.turn.turnId}`,
+      occurredAt: new Date().toISOString(),
+      title: 'PMS智能助手',
+      summary: replies.join('\n'),
+      target: input.turn.target,
+      rawPayload: {
+        source: 'ai-conversation',
+        replyCount: replies.length,
+        intent: typeof input.forwardResult.body.intent === 'string' ? input.forwardResult.body.intent : 'unknown'
+      }
+    });
+    if (input.logInboundSummary) {
+      console.log(JSON.stringify({
+        event: 'adapter_feishu_conversation_reply_delivered',
+        providerKey: 'ai-conversation',
+        turnHash: hashRedacted(input.turn.turnId),
+        replyCount: replies.length
+      }));
+    }
+  } catch (error) {
+    if (input.logInboundSummary) {
+      logSafeForwardingDecision('adapter_feishu_conversation_reply_failed', input.turn, 'ai-conversation', {
+        route: 'conversation-reply',
+        replyCount: replies.length,
+        errorName: error instanceof Error ? error.name : 'UnknownError',
+        errorMessageHash: hashRedacted(error instanceof Error ? error.message : String(error))
+      });
+    }
+  }
+}
+
+function conversationReplyTexts(body: JsonRecord): string[] {
+  const replies = Array.isArray(body.replies) ? body.replies : [];
+  return replies
+    .map((reply) => (reply && typeof reply === 'object' && !Array.isArray(reply) ? reply.text : undefined))
+    .filter((text): text is string => typeof text === 'string' && text.trim().length > 0)
+    .map((text) => text.trim());
 }
 
 function logSafeForwardingDecision(

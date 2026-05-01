@@ -446,9 +446,20 @@ describe('createAdapterRuntime', () => {
     }
   });
 
-  it('forwards authorized generic command turns to ai-conversation with adapter auth', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true, status: 'handled', intent: 'conversation.generic' }), { status: 202 }));
+  it('forwards authorized generic command turns to ai-conversation with adapter auth and delivers replies', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      ok: true,
+      status: 'handled',
+      intent: 'conversation.generic',
+      replies: [{ type: 'text', text: '收到。我可以查询 PMS 房态或发起预演。' }]
+    }), { status: 202 }));
     vi.stubGlobal('fetch', fetchMock);
+    const sendNotification = vi.fn().mockResolvedValue({
+      providerKey: 'ai-conversation',
+      deliveryId: 'delivery-1',
+      channel: 'feishu',
+      status: 'delivered'
+    });
     let handleTurn: Parameters<AdapterRuntimeDeps['createLongConnectionIngress']>[1] | undefined;
     const config = createConfig('long_connection');
     config.providers = {
@@ -486,14 +497,7 @@ describe('createAdapterRuntime', () => {
       createAdapterRuntime(config, {
         createClient: () => createFeishuClientStub(),
         createBitableClient: () => createBitableClientStub(),
-        createReplySink: () => ({
-          sendNotification: vi.fn().mockResolvedValue({
-            providerKey: 'warning-agent',
-            deliveryId: 'delivery-1',
-            channel: 'feishu',
-            status: 'delivered'
-          })
-        }),
+        createReplySink: () => ({ sendNotification }),
         createHttpServer: () => ({
           listen: vi.fn().mockResolvedValue(undefined),
           close: vi.fn().mockResolvedValue(undefined)
@@ -538,6 +542,12 @@ describe('createAdapterRuntime', () => {
           text: 'hello, can you help summarize today?'
         }
       });
+      expect(sendNotification).toHaveBeenCalledWith(expect.objectContaining({
+        providerKey: 'ai-conversation',
+        title: 'PMS智能助手',
+        summary: '收到。我可以查询 PMS 房态或发起预演。',
+        target: { channel: 'feishu', chatId: 'fixture-chat-allowed', messageId: 'msg-conversation-1' }
+      }));
     } finally {
       vi.unstubAllGlobals();
     }
