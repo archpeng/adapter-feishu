@@ -631,6 +631,55 @@ describe('pms-checkout runtime provider', () => {
     expect(pendingStore.get(PMS_CHECKOUT_PROVIDER_KEY, 'pending-1001')).toBeUndefined();
   });
 
+  it('does not hide ai-pms fallback forwarding in explicit platform mode', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: false }), { status: 503 }));
+    const fallbackForwarder = { forwardCallback: vi.fn().mockResolvedValue({ statusCode: 202, body: { code: 0 } }) };
+    const forwarder = createPmsCheckoutPlatformPendingActionCallbackForwarder({
+      baseUrl: 'http://127.0.0.1:8793',
+      token: 'platform-token-1',
+      fetchImpl,
+      fallbackForwarder,
+      mode: 'platform'
+    });
+
+    await expect(forwarder.forwardCallback({
+      envelope: {
+        platformPendingAction: {
+          operation: 'pms.pending_action.confirm',
+          request: {
+            pendingActionRef: 'pa-1001',
+            actor: { type: 'human', id: 'frontdesk-1' },
+            scope: { propertyId: 'hotel-1', channel: 'typed_card' },
+            clientToken: 'client-token-1',
+            requestFingerprint: 'sha256:fingerprint-1',
+            correlationId: 'corr-1',
+            requestedAt: '2026-04-26T00:01:00.000Z',
+            cardPayloadRef: 'card-1001'
+          }
+        }
+      }
+    })).rejects.toThrow(/pms_pending_action_callback_forward_failed:503/);
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(fallbackForwarder.forwardCallback).not.toHaveBeenCalled();
+  });
+
+  it('requires typed platform pending-action payloads in explicit platform mode', async () => {
+    const fallbackForwarder = { forwardCallback: vi.fn().mockResolvedValue({ statusCode: 202, body: { code: 0 } }) };
+    const forwarder = createPmsCheckoutPlatformPendingActionCallbackForwarder({
+      baseUrl: 'http://127.0.0.1:8793',
+      token: 'platform-token-1',
+      fetchImpl: vi.fn(),
+      fallbackForwarder,
+      mode: 'platform'
+    });
+
+    await expect(forwarder.forwardCallback({ envelope: { source: 'adapter-feishu' } })).rejects.toThrow(
+      /pms_pending_action_callback_payload_required/
+    );
+    expect(fallbackForwarder.forwardCallback).not.toHaveBeenCalled();
+  });
+
   it('retains pending state when the explicit platform pending-action callback is unavailable', async () => {
     const replySink = {
       sendNotification: vi.fn().mockResolvedValue({

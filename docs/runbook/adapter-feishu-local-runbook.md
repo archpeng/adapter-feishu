@@ -126,6 +126,43 @@ Expected health shape when enabled:
 
 The provider persists pending `pms.checkout.confirm` actions before dry-run card delivery, reloads them from `ADAPTER_FEISHU_PENDING_STATE_PATH` after normal process restart, rejects stale/duplicate/action-mismatch callbacks, and forwards accepted callbacks to ai-pms/Hermes with header `X-AI-PMS-CALLBACK-TOKEN` sourced from `AI_PMS_CALLBACK_TOKEN`. The real Feishu callback route is `/webhook/card`; `/providers/card-action` remains for local provider/synthetic compatibility and is not sufficient proof of a real Feishu human click.
 
+### PMS platform pending-action callback modes
+
+Default mode remains:
+
+```env
+ADAPTER_FEISHU_PMS_PENDING_ACTION_CALLBACK_MODE=ai_pms
+```
+
+Use explicit platform modes only for local/canary proof after pms-platform pending-action endpoints are available:
+
+```env
+ADAPTER_FEISHU_PMS_PENDING_ACTION_CALLBACK_MODE=platform_shadow
+PMS_PLATFORM_PENDING_ACTION_BASE_URL=http://127.0.0.1:<pms-platform-port>
+PMS_PLATFORM_PENDING_ACTION_TOKEN=<local secret, do not commit>
+```
+
+Mode ladder:
+
+- `ai_pms`: default. Adapter forwards accepted typed-card callbacks only to the current ai-pms callback URL with `AI_PMS_CALLBACK_TOKEN`.
+- `platform_shadow`: adapter first attempts fixed pms-platform pending-action endpoint forwarding, then preserves the ai-pms callback fallback. Use this for rollback/canary evidence only.
+- `platform`: adapter forwards only typed platform pending-action payloads to fixed pms-platform endpoints with `Authorization: Bearer <PMS_PLATFORM_PENDING_ACTION_TOKEN>`. It must not keep hidden ai-pms fallback forwarding.
+
+Fixed platform callback endpoints are:
+
+- `POST /v1/pms/pending-actions/status`
+- `POST /v1/pms/pending-actions/confirm`
+- `POST /v1/pms/pending-actions/cancel`
+
+Validation before any default switch:
+
+```bash
+npm run test -- test/config.test.ts test/providers/pms-checkout-provider.test.ts test/runtime.test.ts
+npm run verify
+```
+
+Logs, health output, test assertions, and incident notes must refer to env names only. Do not record callback tokens, raw platform URLs with credentials, raw Feishu IDs, `pendingActionRef`, `cardPayloadRef`, or idempotency keys in operator-facing summaries.
+
 ## Real Feishu smoke test
 
 With a real Feishu app configured in `.env` and the adapter running:

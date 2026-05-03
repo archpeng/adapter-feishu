@@ -204,7 +204,7 @@ export function createPmsCheckoutPlatformPendingActionCallbackForwarder(
     async forwardCallback(request) {
       const platformRequest = platformPendingActionRequestFromEnvelope(request.envelope);
       if (!platformRequest) {
-        if (options.fallbackForwarder) {
+        if (mode === 'platform_shadow' && options.fallbackForwarder) {
           return options.fallbackForwarder.forwardCallback(request);
         }
         throw new Error('pms_pending_action_callback_payload_required');
