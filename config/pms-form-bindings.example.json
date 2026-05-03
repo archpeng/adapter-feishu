@@ -84,8 +84,10 @@
     },
     "pms-operation-request": {
       "enabled": true,
-      "delivery": {
-        "kind": "ai_pms_operation_request_intake"
+      "target": {
+        "appToken": "example_pms_base_app_token",
+        "tableId": "example_pms_operation_requests_table",
+        "formId": "example_pms_operation_request_form"
       },
       "fieldMap": {
         "action": "action",

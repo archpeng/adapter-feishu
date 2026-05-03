@@ -10,8 +10,6 @@ business payload -> POST /providers/form-webhook -> Feishu Base/Bitable record w
 pms-platform PMS pending-action/card payload -> adapter-feishu pms-checkout provider -> Feishu card/callback -> pms-platform pending-action callback
 ```
 
-The legacy ai-pms/Hermes PMS checkout provider wiring remains rollback and historical migration evidence, not the active customer PMS hot path.
-
 The core architecture remains frozen as:
 
 ```text
@@ -102,7 +100,7 @@ Current repo truth:
 - provider routing, bounded dedupe, and pending callback state are landed under `src/providers/**` and `src/state/**`
 - provider webhook, card-action dispatch, health routing, and `/providers/form-webhook` are landed under `src/server/**`
 - the first concrete provider path remains notify-first `warning-agent -> adapter-feishu -> Feishu/Lark`
-- `pms-checkout` is a provider-only PMS checkout card/callback surface: it renders dry-run/result cards, persists pending `pms.checkout.confirm` actions, validates card callbacks, and forwards typed confirmations to fixed pms-platform pending-action endpoints when platform credentials are configured; ai-pms/Hermes forwarding is legacy rollback only and the adapter still does not execute PMS Core
+- `pms-checkout` is a provider-only PMS checkout card/callback surface: it renders dry-run/result cards, persists pending `pms.checkout.confirm` actions, validates card callbacks, and forwards typed confirmations only to fixed pms-platform pending-action endpoints; the adapter still does not execute PMS Core
 - the form path writes records into an **existing** Feishu Base/table through `bitable.appTableRecord.create`
 - managed form mode resolves `formKey` through `ADAPTER_FEISHU_FORM_REGISTRY_PATH`, maps business fields through `fieldMap`, injects `fixedFields`, and shields callers from raw target selection
 - optional schema preflight uses `bitable.appTableForm.get` + `bitable.appTableFormField.list`
@@ -170,9 +168,9 @@ Typical managed success shape:
 }
 ```
 
-### Legacy mode: default target or explicit override
+### Default-target mode: no formKey
 
-When `formKey` is absent, `/providers/form-webhook` keeps the legacy contract: fields are Feishu table field names, the configured default target is used, and raw `target` override is accepted only when `ADAPTER_FEISHU_FORM_ALLOW_TARGET_OVERRIDE=true`.
+When `formKey` is absent, `/providers/form-webhook` uses table-field names, the configured default target, and raw `target` override only when `ADAPTER_FEISHU_FORM_ALLOW_TARGET_OVERRIDE=true`.
 
 ```bash
 curl -X POST http://127.0.0.1:8787/providers/form-webhook \
@@ -187,11 +185,11 @@ curl -X POST http://127.0.0.1:8787/providers/form-webhook \
   }'
 ```
 
-Raw `target` override is an escape hatch for legacy integrations, not the recommended managed multi-form onboarding path.
+Raw `target` override is an operator-controlled escape hatch, not the recommended managed multi-form onboarding path.
 
 Managed invalid-payload errors are stable enough for operator troubleshooting and include `form_registry_not_configured`, `form_key_unknown:<formKey>`, `form_key_disabled:<formKey>`, `target_not_allowed_for_managed_form`, `field_not_mapped:<businessField>`, and `fixed_field_conflict:<FeishuFieldName>`.
 
-For the full managed/legacy contract, auth rules, registry shape, schema-validation errors, and troubleshooting, see:
+For the full managed/default-target contract, auth rules, registry shape, schema-validation errors, and troubleshooting, see:
 
 - `docs/runbook/adapter-feishu-form-integration.md`
 

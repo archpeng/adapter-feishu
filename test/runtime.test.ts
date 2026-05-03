@@ -52,13 +52,12 @@ function createConfig(
       pendingTtlSeconds: 900
     },
     pmsCheckout: {
-      callbackUrl: undefined,
-      inboundTurnUrl: undefined,
-      callbackToken: undefined,
-      callbackTokenHeader: 'X-AI-PMS-CALLBACK-TOKEN',
-      callbackTokenEnvName: 'AI_PMS_CALLBACK_TOKEN',
       callbackTimeoutMs: 5000,
-      inboundTurnTimeoutMs: 5000,
+      pendingActionCallbackMode: 'platform',
+      pendingActionBaseUrl: 'http://127.0.0.1:8791/',
+      pendingActionToken: 'platform-token-1',
+      pendingActionTokenEnvName: 'PMS_PLATFORM_PENDING_ACTION_TOKEN',
+      pendingActionTimeoutMs: 5000,
       allowedChatIds: [],
       allowedOpenIds: [],
       allowedUserIds: [],
@@ -157,7 +156,7 @@ describe('createAdapterRuntime', () => {
     expect(longConnectionStop).not.toHaveBeenCalled();
   });
 
-  it('keeps registry unset in legacy-only startup mode when no registry path is configured', () => {
+  it('keeps registry unset in default-target startup mode when no registry path is configured', () => {
     const runtime = createAdapterRuntime(createConfig('webhook'), createRuntimeDeps());
 
     expect(runtime.formRegistry).toBeUndefined();
@@ -275,7 +274,7 @@ describe('createAdapterRuntime', () => {
     expect(longConnectionStop).toHaveBeenCalledTimes(1);
   });
 
-  it('forwards pms-checkout command turns to the configured ai-pms inbound endpoint', async () => {
+  it('does not route pms-checkout commands through a direct PMS provider path', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true, status: 'dry_run_projected' }), { status: 202 }));
     vi.stubGlobal('fetch', fetchMock);
     let handleTurn: Parameters<AdapterRuntimeDeps['createLongConnectionIngress']>[1] | undefined;
@@ -287,13 +286,12 @@ describe('createAdapterRuntime', () => {
       webhookAuthToken: undefined
     };
     config.pmsCheckout = {
-      callbackUrl: undefined,
-      inboundTurnUrl: 'http://127.0.0.1:8792/pms/checkout/feishu-message',
-      callbackToken: 'callback-token-1',
-      callbackTokenHeader: 'X-AI-PMS-CALLBACK-TOKEN',
-      callbackTokenEnvName: 'AI_PMS_CALLBACK_TOKEN',
       callbackTimeoutMs: 5000,
-      inboundTurnTimeoutMs: 5000,
+      pendingActionCallbackMode: 'platform',
+      pendingActionBaseUrl: 'http://127.0.0.1:8791/',
+      pendingActionToken: 'platform-token-1',
+      pendingActionTokenEnvName: 'PMS_PLATFORM_PENDING_ACTION_TOKEN',
+      pendingActionTimeoutMs: 5000,
       allowedChatIds: ['fixture-chat-alpha'],
       allowedOpenIds: [],
       allowedUserIds: [],
@@ -340,21 +338,7 @@ describe('createAdapterRuntime', () => {
         rawEvent: {}
       });
 
-      expect(fetchMock).toHaveBeenCalledTimes(1);
-      const [url, init] = fetchMock.mock.calls[0];
-      expect(url).toBe('http://127.0.0.1:8792/pms/checkout/feishu-message');
-      expect(init?.headers).toMatchObject({
-        'content-type': 'application/json',
-        'X-AI-PMS-CALLBACK-TOKEN': 'callback-token-1'
-      });
-      const body = JSON.parse(String(init?.body));
-      expect(body).toMatchObject({
-        name: 'adapter-feishu-inbound-turn',
-        version: 'v1',
-        source: 'adapter-feishu',
-        providerKey: 'pms-checkout'
-      });
-      expect(body.turn.text).toBe('room 1001 checkout');
+      expect(fetchMock).not.toHaveBeenCalled();
     } finally {
       vi.unstubAllGlobals();
     }
@@ -372,13 +356,12 @@ describe('createAdapterRuntime', () => {
       webhookAuthToken: undefined
     };
     config.pmsCheckout = {
-      callbackUrl: undefined,
-      inboundTurnUrl: 'http://127.0.0.1:8792/pms/checkout/feishu-message',
-      callbackToken: 'callback-token-1',
-      callbackTokenHeader: 'X-AI-PMS-CALLBACK-TOKEN',
-      callbackTokenEnvName: 'AI_PMS_CALLBACK_TOKEN',
       callbackTimeoutMs: 5000,
-      inboundTurnTimeoutMs: 5000,
+      pendingActionCallbackMode: 'platform',
+      pendingActionBaseUrl: 'http://127.0.0.1:8791/',
+      pendingActionToken: 'platform-token-1',
+      pendingActionTokenEnvName: 'PMS_PLATFORM_PENDING_ACTION_TOKEN',
+      pendingActionTimeoutMs: 5000,
       allowedChatIds: ['fixture-chat-allowed'],
       allowedOpenIds: ['fixture-user-allowed'],
       allowedUserIds: [],
@@ -469,13 +452,12 @@ describe('createAdapterRuntime', () => {
       webhookAuthToken: undefined
     };
     config.pmsCheckout = {
-      callbackUrl: undefined,
-      inboundTurnUrl: 'http://127.0.0.1:8792/pms/checkout/feishu-message',
-      callbackToken: 'callback-token-1',
-      callbackTokenHeader: 'X-AI-PMS-CALLBACK-TOKEN',
-      callbackTokenEnvName: 'AI_PMS_CALLBACK_TOKEN',
       callbackTimeoutMs: 5000,
-      inboundTurnTimeoutMs: 5000,
+      pendingActionCallbackMode: 'platform',
+      pendingActionBaseUrl: 'http://127.0.0.1:8791/',
+      pendingActionToken: 'platform-token-1',
+      pendingActionTokenEnvName: 'PMS_PLATFORM_PENDING_ACTION_TOKEN',
+      pendingActionTimeoutMs: 5000,
       allowedChatIds: ['fixture-chat-allowed'],
       allowedOpenIds: ['fixture-user-allowed'],
       allowedUserIds: [],
@@ -565,13 +547,12 @@ describe('createAdapterRuntime', () => {
       webhookAuthToken: undefined
     };
     config.pmsCheckout = {
-      callbackUrl: undefined,
-      inboundTurnUrl: 'http://127.0.0.1:8792/pms/checkout/feishu-message',
-      callbackToken: 'callback-token-1',
-      callbackTokenHeader: 'X-AI-PMS-CALLBACK-TOKEN',
-      callbackTokenEnvName: 'AI_PMS_CALLBACK_TOKEN',
       callbackTimeoutMs: 5000,
-      inboundTurnTimeoutMs: 5000,
+      pendingActionCallbackMode: 'platform',
+      pendingActionBaseUrl: 'http://127.0.0.1:8791/',
+      pendingActionToken: 'platform-token-1',
+      pendingActionTokenEnvName: 'PMS_PLATFORM_PENDING_ACTION_TOKEN',
+      pendingActionTimeoutMs: 5000,
       allowedChatIds: ['fixture-chat-allowed'],
       allowedOpenIds: [],
       allowedUserIds: [],
@@ -650,7 +631,7 @@ describe('createAdapterRuntime', () => {
     }
   });
 
-  it('blocks unauthorized generic and PMS turns before conversation or ai-pms forwarding', async () => {
+  it('blocks unauthorized generic and PMS turns before conversation forwarding', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 202 }));
     vi.stubGlobal('fetch', fetchMock);
     let handleTurn: Parameters<AdapterRuntimeDeps['createLongConnectionIngress']>[1] | undefined;
@@ -662,13 +643,12 @@ describe('createAdapterRuntime', () => {
       webhookAuthToken: undefined
     };
     config.pmsCheckout = {
-      callbackUrl: undefined,
-      inboundTurnUrl: 'http://127.0.0.1:8792/pms/checkout/feishu-message',
-      callbackToken: 'callback-token-1',
-      callbackTokenHeader: 'X-AI-PMS-CALLBACK-TOKEN',
-      callbackTokenEnvName: 'AI_PMS_CALLBACK_TOKEN',
       callbackTimeoutMs: 5000,
-      inboundTurnTimeoutMs: 5000,
+      pendingActionCallbackMode: 'platform',
+      pendingActionBaseUrl: 'http://127.0.0.1:8791/',
+      pendingActionToken: 'platform-token-1',
+      pendingActionTokenEnvName: 'PMS_PLATFORM_PENDING_ACTION_TOKEN',
+      pendingActionTimeoutMs: 5000,
       allowedChatIds: ['fixture-chat-allowed'],
       allowedOpenIds: ['fixture-user-allowed'],
       allowedUserIds: [],
@@ -876,14 +856,8 @@ describe('createAdapterRuntime', () => {
       webhookAuthToken: undefined
     };
     config.pmsCheckout = {
-      callbackUrl: 'http://127.0.0.1:8792/pms/checkout/callback',
-      inboundTurnUrl: undefined,
-      callbackToken: 'callback-token-1',
-      callbackTokenHeader: 'X-AI-PMS-CALLBACK-TOKEN',
-      callbackTokenEnvName: 'AI_PMS_CALLBACK_TOKEN',
       callbackTimeoutMs: 5000,
-      inboundTurnTimeoutMs: 5000,
-      pendingActionCallbackMode: 'platform_shadow',
+      pendingActionCallbackMode: 'platform',
       pendingActionBaseUrl: 'http://127.0.0.1:8791/',
       pendingActionToken: 'platform-token-1',
       pendingActionTokenEnvName: 'PMS_PLATFORM_PENDING_ACTION_TOKEN',
@@ -934,11 +908,8 @@ describe('createAdapterRuntime', () => {
         providers: ['warning-agent', 'pms-checkout'],
         pmsCheckout: {
           enabled: true,
-          callbackMode: 'platform_shadow',
-          aiPmsCallbackConfigured: true,
+          callbackMode: 'platform',
           platformPendingActionConfigured: true,
-          fallbackToAiPmsEnabled: true,
-          callbackTokenEnvName: 'AI_PMS_CALLBACK_TOKEN',
           platformTokenEnvName: 'PMS_PLATFORM_PENDING_ACTION_TOKEN',
           rawCallbackUrlLogged: false,
           rawPlatformBaseUrlLogged: false,

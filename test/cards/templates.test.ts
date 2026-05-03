@@ -51,7 +51,7 @@ describe('renderInteractiveCard', () => {
     ]);
   });
 
-  it('preserves legacy button value while adding explicit callback behavior', () => {
+  it('preserves button value while adding explicit callback behavior', () => {
     const card = renderInteractiveCard({
       title: 'PMS checkout dry-run',
       summary: 'Confirm requires typed card action.',

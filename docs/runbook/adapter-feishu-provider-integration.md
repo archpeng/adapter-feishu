@@ -1,148 +1,56 @@
-# adapter-feishu provider integration
+# adapter-feishu provider integration runbook
 
-## First provider: warning-agent
-
-The first supported provider path is:
+## Active PMS/Feishu path
 
 ```text
-warning-agent -> adapter-feishu -> Feishu/Lark
+Feishu -> adapter-feishu -> ai-conversation -> pms-platform
 ```
 
-This is intentionally **notify-first**.
-
-`adapter-feishu` currently accepts completed warning-agent report payloads and renders them into Feishu delivery via the shared reply sink.
+`adapter-feishu` owns Feishu ingress, message/card delivery, provider routing, short-lived pending callback state, and typed-card callback transport. It does not own PMS business truth or natural-language PMS routing.
 
 ## PMS checkout provider
 
-The PMS checkout provider path is:
+The `pms-checkout` provider is a card/callback surface only:
 
-```text
-ai-pms / Hermes orchestrator
-  -> POST /providers/webhook providerKey=pms-checkout projectionKind=dryRunCard|resultCard
-  -> adapter-feishu renders Feishu card only
-  -> Feishu human clicks pms.checkout.confirm
-  -> POST /webhook/card real Feishu callback (or /providers/card-action local compatibility)
-  -> adapter-feishu validates token and consumes durable pending action
-  -> adapter-feishu forwards typed callback to ai-pms/Hermes
-```
+1. receives PMS platform dry-run/result card payloads from provider webhook;
+2. renders Feishu cards and stores short-lived pending callback state;
+3. validates typed Feishu card callbacks;
+4. forwards accepted callbacks only to fixed pms-platform pending-action endpoints.
 
-Enable it explicitly; do not make it the default provider for warning-agent payloads:
+Configure platform callback transport:
 
 ```env
 ADAPTER_FEISHU_PROVIDER_KEYS=warning-agent,pms-checkout
-ADAPTER_FEISHU_DEFAULT_PROVIDER=warning-agent
-ADAPTER_FEISHU_ALLOW_PROVIDER_OVERRIDE=true
+ADAPTER_FEISHU_PMS_PENDING_ACTION_CALLBACK_MODE=platform
+PMS_PLATFORM_PENDING_ACTION_BASE_URL=http://127.0.0.1:8791
+PMS_PLATFORM_PENDING_ACTION_TOKEN=<local secret, do not commit>
 ADAPTER_FEISHU_PENDING_STATE_PATH=.local/pending-actions.json
-ADAPTER_FEISHU_PMS_CHECKOUT_CALLBACK_URL=http://127.0.0.1:<ai-pms-port>/pms/checkout/callback
-ADAPTER_FEISHU_CARD_ACTION_INGRESS_PATH=/webhook/card
 FEISHU_WEBHOOK_VERIFICATION_TOKEN=<local secret, do not commit>
-AI_PMS_CALLBACK_TOKEN=<local secret, do not commit>
 ```
 
-Provider rules:
+Fixed callback endpoints:
 
-- `pms-checkout` accepts only `feishuProjection.providerKey=pms-checkout` envelopes whose `canonicalSource` is `pms-platform`.
-- `projectionKind=dryRunCard` requires dry-run identity and distinct confirm identity; the adapter persists a pending `pms.checkout.confirm` action before card delivery.
-- `projectionKind=resultCard` renders PMS success/failure projections only; it creates no PMS state and no pending action.
-- Real Feishu card callbacks are accepted on `/webhook/card` and may use `/card-action` / `/providers/card-action` only as compatibility/local-provider aliases.
-- Card callbacks must carry `providerKey=pms-checkout`, `actionId=pms.checkout.confirm`, `pendingId`, room/correlation fields, dry-run identity, confirm identity, and `confirmMode=confirm`.
-- Callback forwarding uses `X-AI-PMS-CALLBACK-TOKEN` from env name `AI_PMS_CALLBACK_TOKEN`; token values must stay outside git.
-- adapter-feishu never calls PMS Core or the PMS local HTTP runtime directly for checkout confirm.
+- `POST /v1/pms/pending-actions/status`
+- `POST /v1/pms/pending-actions/confirm`
+- `POST /v1/pms/pending-actions/cancel`
 
-## Provider webhook auth
+Callback forwarding uses `Authorization: Bearer <PMS_PLATFORM_PENDING_ACTION_TOKEN>`. Token values, raw Feishu IDs, pending refs, card payload refs, and raw platform URLs with credentials must not be logged or committed.
 
-When `ADAPTER_FEISHU_PROVIDER_WEBHOOK_AUTH_TOKEN` is configured in `adapter-feishu`, `warning-agent` must send one of:
+## Conversation forwarding
 
-- `Authorization: Bearer <token>`
-- `x-adapter-provider-token: <token>`
+Natural-language command turns should be forwarded to `ai-conversation`:
 
-Deployed environments should treat this as required and should not expose `/providers/webhook` anonymously.
-
-## Minimum warning-agent payload
-
-`POST /providers/webhook`
-
-```json
-{
-  "reportId": "report-9",
-  "runId": "wr_123",
-  "summary": "cpu anomaly investigated",
-  "severity": "warning",
-  "bodyMarkdown": "Root cause points to deployment config drift.",
-  "reportUrl": "https://warning-agent.local/reports/report-9",
-  "target": {
-    "channel": "feishu",
-    "chatId": "oc_xxx"
-  }
-}
+```env
+ADAPTER_FEISHU_CONVERSATION_TURN_URL=http://ai-conversation:8793/conversation/feishu-turn
+AI_CONVERSATION_INBOUND_AUTH_TOKEN=<local secret, do not commit>
+ADAPTER_FEISHU_ALLOWED_CHAT_IDS=<allowed chat ids>
 ```
 
-Required fields:
+`ai-conversation` performs semantic routing and safe PMS tool planning; `pms-platform` owns PMS truth and workflow execution.
 
-- `reportId`: stable report identifier
-- `runId`: warning-agent run identifier
-- `summary`: final short summary for Feishu delivery
-- `target`: required for the current runtime unless adapter-feishu is explicitly configured with a default delivery target
+## Validation
 
-Optional fields:
-
-- `title`
-- `occurredAt`
-- `severity`: `info | warning | critical`
-- `bodyMarkdown`
-- `reportUrl`
-- `incidentId`: preferred dedupe key when available
-- `facts`: array of `{ label, value }`
-- `actions`: explicit provider-defined button actions
-
-Notes:
-
-- `target.channel` must be `feishu`, and it must include either `chatId` or `openId`
-- `incidentId` is optional; when present it becomes the preferred dedupe key
-- without `incidentId`, the provider falls back to `reportId` for dedupe
-- `reportUrl` is rendered as card content metadata/facts, but no synthetic callback button is generated by default
-
-## Delivery behavior
-
-The warning-agent provider will:
-
-1. validate that the incoming payload matches the warning-agent contract
-2. normalize it into the shared `ProviderNotification` shape
-3. render a rich interactive diagnosis card
-4. deliver through the shared Feishu reply sink
-
-## Card callback decision
-
-The generic adapter callback path exists, but `warning-agent` should currently treat Feishu cards as **read-only delivery surfaces**.
-
-Current decision:
-
-- keep `warning-agent -> adapter-feishu -> Feishu` notify-first
-- do not require a `warning-agent` card callback closed loop in the current phase
-- do not emit synthetic callback buttons unless warning-agent exposes stable action semantics and adapter-feishu creates matching pending state
-
-Only after `warning-agent` has a concrete action contract such as acknowledge / rerun / suppress should it start sending explicit `actions`, and only then should adapter-feishu wire those buttons to `/providers/card-action`.
-
-## Real Feishu smoke test
-
-With adapter-feishu running locally or in Docker and real Feishu credentials configured:
-
-1. set a real target:
-   - `ADAPTER_FEISHU_SMOKE_CHAT_ID=<oc_xxx>`
-   - or `ADAPTER_FEISHU_SMOKE_OPEN_ID=<ou_xxx>`
-2. if provider webhook auth is enabled, set:
-   - `ADAPTER_FEISHU_PROVIDER_WEBHOOK_AUTH_TOKEN=<token>`
-3. run:
-   - `npm run smoke:provider-webhook`
-
-This sends a real notify-first payload through `/providers/webhook`, which is the same adapter entrypoint warning-agent should use.
-
-## Intentionally not implemented yet
-
-The following path remains blocked by external API reality and is therefore **not** exposed as a supported integration contract:
-
-```text
-alert -> adapter-feishu -> warning-agent submitAlert/report poll -> Feishu
+```bash
+npm run test -- test/providers/pms-checkout-provider.test.ts test/runtime.test.ts
+npm run verify
 ```
-
-This repository keeps that boundary honest until `warning-agent` exposes a stable external alert/report API.

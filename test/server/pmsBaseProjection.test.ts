@@ -356,7 +356,7 @@ describe('dispatchPmsBaseProjectionRequest', () => {
             operator: 'frontdesk-alpha',
             reason: 'guest arrival',
             requestedAt: '2026-04-28T00:00:00.000Z',
-            payloadJSON: '{"source":"ai-pms"}',
+            payloadJSON: '{"source":"pms-platform"}',
             resultJSON: '{"phase":"dryRun"}'
           }
         })
@@ -396,7 +396,7 @@ describe('dispatchPmsBaseProjectionRequest', () => {
         Operator: 'frontdesk-alpha',
         Reason: 'guest arrival',
         RequestedAt: 1777334400000,
-        PayloadJSON: '{"source":"ai-pms"}',
+        PayloadJSON: '{"source":"pms-platform"}',
         ResultJSON: '{"phase":"dryRun"}'
       }
     });

@@ -1,12 +1,8 @@
 import type { FeishuUserIdType } from './channels/feishu/bitableClient.js';
 import { AI_CONVERSATION_AUTH_ENV_NAME, AI_CONVERSATION_AUTH_HEADER } from './conversation/forwarder.js';
-import {
-  AI_PMS_OPERATION_REQUEST_INTAKE_AUTH_ENV_NAME,
-  AI_PMS_OPERATION_REQUEST_INTAKE_AUTH_HEADER
-} from './forms/operationRequestIntakeForwarder.js';
 
 export type IngressMode = 'webhook' | 'long_connection';
-export type PmsPendingActionCallbackMode = 'ai_pms' | 'platform_shadow' | 'platform';
+export type PmsPendingActionCallbackMode = 'platform';
 
 export interface FeishuFormDefaultTargetConfig {
   appToken: string;
@@ -40,11 +36,6 @@ export interface AdapterConfig {
     userIdType: FeishuUserIdType;
     defaultTarget?: FeishuFormDefaultTargetConfig;
     registryPath?: string;
-    operationRequestIntakeUrl?: string;
-    operationRequestIntakeAuthToken?: string;
-    operationRequestIntakeAuthHeader: typeof AI_PMS_OPERATION_REQUEST_INTAKE_AUTH_HEADER;
-    operationRequestIntakeAuthEnvName: typeof AI_PMS_OPERATION_REQUEST_INTAKE_AUTH_ENV_NAME;
-    operationRequestIntakeTimeoutMs: number;
   };
   pmsBase: {
     webhookAuthToken?: string;
@@ -56,14 +47,8 @@ export interface AdapterConfig {
     pendingStatePath?: string;
   };
   pmsCheckout: {
-    callbackUrl?: string;
-    inboundTurnUrl?: string;
-    callbackToken?: string;
-    callbackTokenHeader: 'X-AI-PMS-CALLBACK-TOKEN';
-    callbackTokenEnvName: 'AI_PMS_CALLBACK_TOKEN';
     callbackTimeoutMs: number;
-    inboundTurnTimeoutMs: number;
-    pendingActionCallbackMode?: PmsPendingActionCallbackMode;
+    pendingActionCallbackMode: PmsPendingActionCallbackMode;
     pendingActionBaseUrl?: string;
     pendingActionToken?: string;
     pendingActionTokenEnvName?: 'PMS_PLATFORM_PENDING_ACTION_TOKEN';
@@ -126,15 +111,10 @@ function parsePmsPendingActionCallbackMode(
   env: Record<string, string | undefined>
 ): PmsPendingActionCallbackMode {
   const raw = env.ADAPTER_FEISHU_PMS_PENDING_ACTION_CALLBACK_MODE?.trim();
-  if (!raw) {
-    return env.PMS_PLATFORM_PENDING_ACTION_BASE_URL?.trim() && env.PMS_PLATFORM_PENDING_ACTION_TOKEN?.trim()
-      ? 'platform'
-      : 'ai_pms';
+  if (!raw || raw === 'platform') {
+    return 'platform';
   }
-  if (raw === 'ai_pms' || raw === 'platform_shadow' || raw === 'platform') {
-    return raw;
-  }
-  throw new Error('ADAPTER_FEISHU_PMS_PENDING_ACTION_CALLBACK_MODE must be ai_pms, platform_shadow, or platform');
+  throw new Error('ADAPTER_FEISHU_PMS_PENDING_ACTION_CALLBACK_MODE must be platform');
 }
 
 function parseCsv(env: Record<string, string | undefined>, key: string, fallback: string[]): string[] {
@@ -225,12 +205,8 @@ function parseOptionalFormDefaultTarget(
 export function loadConfig(env: Record<string, string | undefined> = process.env): AdapterConfig {
   const providerKeys = parseCsv(env, 'ADAPTER_FEISHU_PROVIDER_KEYS', ['warning-agent']);
   const defaultProvider = env.ADAPTER_FEISHU_DEFAULT_PROVIDER?.trim() || providerKeys[0];
-  const pmsCheckoutCallbackUrl = parseOptionalUrl(env, 'ADAPTER_FEISHU_PMS_CHECKOUT_CALLBACK_URL');
-  const pmsCheckoutInboundTurnUrl = parseOptionalUrl(env, 'ADAPTER_FEISHU_PMS_CHECKOUT_INBOUND_TURN_URL');
-  const pmsOperationRequestIntakeUrl = parseOptionalUrl(env, 'ADAPTER_FEISHU_PMS_OPERATION_REQUEST_INTAKE_URL');
   const pmsPendingActionCallbackMode = parsePmsPendingActionCallbackMode(env);
   const pmsPendingActionBaseUrl = parseOptionalUrl(env, 'PMS_PLATFORM_PENDING_ACTION_BASE_URL');
-  const pmsCheckoutCallbackToken = env.AI_PMS_CALLBACK_TOKEN?.trim() || undefined;
   const pmsPendingActionToken = env.PMS_PLATFORM_PENDING_ACTION_TOKEN?.trim() || undefined;
   const conversationTurnUrl = parseOptionalUrl(env, 'ADAPTER_FEISHU_CONVERSATION_TURN_URL');
   const conversationInboundAuthToken = env.AI_CONVERSATION_INBOUND_AUTH_TOKEN?.trim() || undefined;
@@ -247,25 +223,9 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     throw new Error('ADAPTER_FEISHU_DEFAULT_PROVIDER must be included in ADAPTER_FEISHU_PROVIDER_KEYS');
   }
 
-  if ((pmsCheckoutCallbackUrl || pmsCheckoutInboundTurnUrl) && !pmsCheckoutCallbackToken) {
+  if (!pmsPendingActionBaseUrl || !pmsPendingActionToken) {
     throw new Error(
-      'AI_PMS_CALLBACK_TOKEN must be set when ADAPTER_FEISHU_PMS_CHECKOUT_CALLBACK_URL or ADAPTER_FEISHU_PMS_CHECKOUT_INBOUND_TURN_URL is set'
-    );
-  }
-
-  if (pmsOperationRequestIntakeUrl && !pmsCheckoutCallbackToken) {
-    throw new Error('AI_PMS_CALLBACK_TOKEN must be set when ADAPTER_FEISHU_PMS_OPERATION_REQUEST_INTAKE_URL is set');
-  }
-
-  if (pmsCheckoutInboundTurnUrl && adapterAllowedChatIds.length === 0) {
-    throw new Error(
-      'ADAPTER_FEISHU_ALLOWED_CHAT_IDS or FEISHU_HOME_CHANNEL must be set when ADAPTER_FEISHU_PMS_CHECKOUT_INBOUND_TURN_URL is set'
-    );
-  }
-
-  if (pmsPendingActionCallbackMode !== 'ai_pms' && (!pmsPendingActionBaseUrl || !pmsPendingActionToken)) {
-    throw new Error(
-      'PMS_PLATFORM_PENDING_ACTION_BASE_URL and PMS_PLATFORM_PENDING_ACTION_TOKEN must be set when ADAPTER_FEISHU_PMS_PENDING_ACTION_CALLBACK_MODE is platform_shadow or platform'
+      'PMS_PLATFORM_PENDING_ACTION_BASE_URL and PMS_PLATFORM_PENDING_ACTION_TOKEN must be set for PMS typed-card callbacks'
     );
   }
 
@@ -305,11 +265,6 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       userIdType: parseFeishuUserIdType(env, 'ADAPTER_FEISHU_FORM_USER_ID_TYPE', 'user_id'),
       defaultTarget: parseOptionalFormDefaultTarget(env),
       registryPath: env.ADAPTER_FEISHU_FORM_REGISTRY_PATH?.trim() || undefined,
-      operationRequestIntakeUrl: pmsOperationRequestIntakeUrl,
-      operationRequestIntakeAuthToken: pmsCheckoutCallbackToken,
-      operationRequestIntakeAuthHeader: AI_PMS_OPERATION_REQUEST_INTAKE_AUTH_HEADER,
-      operationRequestIntakeAuthEnvName: AI_PMS_OPERATION_REQUEST_INTAKE_AUTH_ENV_NAME,
-      operationRequestIntakeTimeoutMs: parsePositiveInteger(env, 'ADAPTER_FEISHU_PMS_OPERATION_REQUEST_INTAKE_TIMEOUT_MS', 5_000)
     },
     pmsBase: {
       webhookAuthToken: env.ADAPTER_FEISHU_PMS_BASE_WEBHOOK_AUTH_TOKEN?.trim() || undefined,
@@ -321,13 +276,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       pendingStatePath: env.ADAPTER_FEISHU_PENDING_STATE_PATH?.trim() || undefined
     },
     pmsCheckout: {
-      callbackUrl: pmsCheckoutCallbackUrl,
-      inboundTurnUrl: pmsCheckoutInboundTurnUrl,
-      callbackToken: pmsCheckoutCallbackToken,
-      callbackTokenHeader: 'X-AI-PMS-CALLBACK-TOKEN',
-      callbackTokenEnvName: 'AI_PMS_CALLBACK_TOKEN',
       callbackTimeoutMs: parsePositiveInteger(env, 'ADAPTER_FEISHU_PMS_CHECKOUT_CALLBACK_TIMEOUT_MS', 5_000),
-      inboundTurnTimeoutMs: parsePositiveInteger(env, 'ADAPTER_FEISHU_PMS_CHECKOUT_INBOUND_TURN_TIMEOUT_MS', 5_000),
       pendingActionCallbackMode: pmsPendingActionCallbackMode,
       pendingActionBaseUrl: pmsPendingActionBaseUrl,
       pendingActionToken: pmsPendingActionToken,

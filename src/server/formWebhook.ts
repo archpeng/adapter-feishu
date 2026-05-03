@@ -8,7 +8,6 @@ import type {
 import type { FeishuFormDefaultTargetConfig } from '../config.js';
 import type { JsonRecord } from '../core/contracts.js';
 import type { ManagedFormBinding, ManagedFormRegistry } from '../forms/registry.js';
-import type { OperationRequestIntakeForwarder } from '../forms/operationRequestIntakeForwarder.js';
 import type { AlertDeduper, DedupeKeyInput } from '../state/dedupe.js';
 import type { TableWriteQueue } from '../state/tableWriteQueue.js';
 
@@ -35,7 +34,6 @@ export interface FormWebhookDispatchDeps {
   defaultTarget?: FeishuFormDefaultTargetConfig;
   allowTargetOverride?: boolean;
   formRegistry?: ManagedFormRegistry;
-  operationRequestIntakeForwarder?: OperationRequestIntakeForwarder;
   userIdType: FeishuUserIdType;
   deduper?: AlertDeduper;
   tableWriteQueue?: TableWriteQueue;
@@ -93,9 +91,7 @@ export async function dispatchFormWebhookRequest(
   ];
 
   const deliveryKind = targetResolution.deliveryKind ?? 'base_record';
-  const hasRequiredTarget = deliveryKind === 'ai_pms_operation_request_intake'
-    ? true
-    : Boolean(targetResolution.target && targetResolution.targetSource);
+  const hasRequiredTarget = Boolean(targetResolution.target && targetResolution.targetSource);
 
   if (errors.length > 0 || !clientToken || !fields || !targetResolution.fields || !hasRequiredTarget) {
     return invalidPayloadResponse(errors);
@@ -107,65 +103,12 @@ export async function dispatchFormWebhookRequest(
   const resolvedFields = targetResolution.fields;
   const dedupeInput: DedupeKeyInput = {
     providerKey: FORM_WEBHOOK_DEDUPE_PROVIDER_KEY,
-    dedupeKey: deliveryKind === 'ai_pms_operation_request_intake'
-      ? `ai-pms-operation-request-intake:${targetResolution.formKey}:${clientToken}`
-      : `${target?.appToken}:${target?.tableId}:${clientToken}`
+    dedupeKey: `${target?.appToken}:${target?.tableId}:${clientToken}`
   };
 
   const executeRequest = async (): Promise<FormWebhookResponse> => {
     if (deps.deduper?.has(dedupeInput)) {
-      return deliveryKind === 'ai_pms_operation_request_intake'
-        ? duplicateForwardIgnoredResponse(clientToken, targetResolution.formKey)
-        : duplicateIgnoredResponse(clientToken, targetSource ?? 'managed', target as FeishuFormDefaultTargetConfig);
-    }
-
-    if (deliveryKind === 'ai_pms_operation_request_intake') {
-      const forwarder = deps.operationRequestIntakeForwarder;
-      if (!forwarder) {
-        return {
-          statusCode: 502,
-          body: {
-            code: 502,
-            message: 'operation_request_intake_not_configured'
-          }
-        };
-      }
-
-      const result = await forwarder
-        .forwardOperationRequest({
-          schemaVersion: 'pms-operation-request-intake-v1',
-          source: 'adapter-feishu',
-          ingress: 'managed_form',
-          formKey: targetResolution.formKey ?? 'managed-form',
-          clientToken,
-          fields: resolvedFields
-        })
-        .catch((error: unknown) => ({ error }));
-
-      if ('error' in result) {
-        return {
-          statusCode: 502,
-          body: {
-            code: 502,
-            message: 'operation_request_forward_failed',
-            error: errorMessage(result.error)
-          }
-        };
-      }
-
-      deps.deduper?.markSeen(dedupeInput);
-
-      return {
-        statusCode: result.statusCode,
-        body: {
-          code: 0,
-          status: 'operation_request_forwarded',
-          clientToken,
-          targetSource: 'managed_forward',
-          formKey: targetResolution.formKey,
-          aiPms: result.body
-        }
-      };
+      return duplicateIgnoredResponse(clientToken, targetSource ?? 'managed', target as FeishuFormDefaultTargetConfig);
     }
 
     const recordTarget = target as FeishuFormDefaultTargetConfig;
@@ -228,7 +171,7 @@ interface FormTargetResolution {
   target?: FeishuFormDefaultTargetConfig;
   targetSource?: 'default' | 'override' | 'managed';
   formKey?: string;
-  deliveryKind?: 'base_record' | 'ai_pms_operation_request_intake';
+  deliveryKind?: 'base_record';
   fields?: JsonRecord;
   validateFormSchema?: boolean;
   errors: string[];
@@ -275,13 +218,6 @@ function resolveManagedFormPayload(
   }
 
   const deliveryKind = binding.delivery?.kind ?? 'base_record';
-  if (deliveryKind === 'ai_pms_operation_request_intake') {
-    errors.push(...rawTargetKeyErrors(payload, 'payload', { skipFieldsRoot: true }));
-    if (fields) {
-      errors.push(...rawTargetKeyErrors(fields, 'fields'));
-    }
-  }
-
   const mappedFields = fields ? mapManagedFormFields(fields, binding, errors) : undefined;
 
   return {
@@ -293,41 +229,6 @@ function resolveManagedFormPayload(
     validateFormSchema: explicitValidateFormSchema ?? binding.policy.validateFormSchemaByDefault,
     errors
   };
-}
-
-function rawTargetKeyErrors(
-  value: JsonRecord,
-  path: string,
-  options: { skipFieldsRoot?: boolean } = {}
-): string[] {
-  const errors: string[] = [];
-  const forbidden = new Set(['appToken', 'tableId', 'formId', 'recordId']);
-
-  for (const [key, nestedValue] of Object.entries(value)) {
-    if (options.skipFieldsRoot && key === 'fields') {
-      continue;
-    }
-
-    const nestedPath = `${path}.${key}`;
-    if (forbidden.has(key)) {
-      errors.push(`target_not_allowed:${nestedPath}`);
-      continue;
-    }
-
-    if (isRecord(nestedValue)) {
-      errors.push(...rawTargetKeyErrors(nestedValue as JsonRecord, nestedPath));
-    }
-
-    if (Array.isArray(nestedValue)) {
-      nestedValue.forEach((entry, index) => {
-        if (isRecord(entry)) {
-          errors.push(...rawTargetKeyErrors(entry as JsonRecord, `${nestedPath}.${index}`));
-        }
-      });
-    }
-  }
-
-  return errors;
 }
 
 function mapManagedFormFields(
@@ -767,19 +668,6 @@ function duplicateIgnoredResponse(
       clientToken,
       targetSource,
       target
-    }
-  };
-}
-
-function duplicateForwardIgnoredResponse(clientToken: string, formKey: string | undefined): FormWebhookResponse {
-  return {
-    statusCode: 202,
-    body: {
-      code: 0,
-      status: 'duplicate_ignored',
-      clientToken,
-      targetSource: 'managed_forward',
-      formKey
     }
   };
 }

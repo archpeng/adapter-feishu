@@ -1,6 +1,6 @@
 # adapter-feishu 智能 PMS 路线图
 
-> Strategic service-composition roadmap: see `docs/roadmap/ai-pms-service-composition-roadmap.md` for the long-lived Hermes + PMS Core + adapter-feishu + Feishu split.
+> Strategic service-composition roadmap: active PMS/Feishu path is `adapter-feishu -> ai-conversation -> pms-platform`; archived pre-cutover roadmaps are not active implementation truth.
 >
 > 状态：roadmap source-of-truth draft，基于当前 `main` 分支代码事实与 `docs/prd/*` 产品方案整理。
 > 目标：在不破坏 `adapter-feishu` 现有架构边界的前提下，把“飞书多维表格 + 表单视图 + 自动化 + Bot 通知 + Codex/MCP 外层入口”的酒店轻 PMS 路径拆成可执行阶段。

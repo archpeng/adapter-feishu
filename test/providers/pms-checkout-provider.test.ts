@@ -1,9 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
-  createPmsCheckoutHttpCallbackForwarder,
   createPmsCheckoutPlatformPendingActionCallbackForwarder,
   createPmsCheckoutProvider,
-  PMS_CHECKOUT_PROVIDER_KEY
+  PMS_CHECKOUT_PROVIDER_KEY,
 } from '../../src/providers/pms-checkout/index.js';
 import { createProviderRegistry, registerProvider } from '../../src/providers/registry.js';
 import { createProviderRouter } from '../../src/providers/router.js';
@@ -14,16 +13,12 @@ import { createPendingStore } from '../../src/state/pendingStore.js';
 function dryRunProjection() {
   return {
     providerKey: PMS_CHECKOUT_PROVIDER_KEY,
-    reason: 'Render PMS checkout dry-run for human confirmation.',
     requestedAt: '2026-04-26T00:00:02.000Z',
     feishuProjection: {
       providerKey: PMS_CHECKOUT_PROVIDER_KEY,
       projectionKind: 'dryRunCard',
       canonicalSource: 'pms-platform',
-      target: {
-        kind: 'chat',
-        id: 'oc-chat-1'
-      },
+      target: { kind: 'chat', id: 'oc-chat-1' },
       payload: {
         roomId: 'room-1001',
         roomNumber: '1001',
@@ -34,7 +29,7 @@ function dryRunProjection() {
         dryRunIdentity: {
           mode: 'dryRun',
           idempotencyKey: 'idem-pms-checkout-1001-dry-run',
-          requestFingerprint: 'sha256:pms-checkout-dry-run-1001'
+          requestFingerprint: 'sha256:pms-checkout-dry-run-1001',
         },
         confirmAction: {
           actionId: 'pms.checkout.confirm',
@@ -43,32 +38,32 @@ function dryRunProjection() {
           requestFingerprint: 'sha256:pms-checkout-confirm-1001',
           callbackEnvelope: 'pms-checkout-confirm-callback-forward.v1',
           forwardTo: {
-            owner: 'ai-pms',
-            handler: 'ai_pms.pms_checkout.confirm_callback'
-          }
+            owner: 'pms-platform',
+            handler: 'pms_platform.pending_action.confirm_callback',
+            auth: {
+              headerName: 'Authorization',
+              envName: 'PMS_PLATFORM_PENDING_ACTION_TOKEN',
+              valueStoredInRepo: false,
+            },
+          },
+          pendingAction: {
+            pendingActionRef: 'pa-checkout-1001',
+            cardPayloadRef: 'card-checkout-1001',
+            scope: {
+              propertyId: 'hotel-1',
+              channel: 'typed_card',
+              tenantIdHash: 'sha256:tenant-1',
+              chatIdHash: 'sha256:oc-chat-1',
+              userIdHash: 'sha256:frontdesk-1',
+            },
+          },
         },
         actor: { type: 'human', id: 'frontdesk-1', displayName: 'Front Desk' },
         correlationId: 'corr-pms-checkout-1001',
-        idempotencyKey: 'idem-pms-checkout-1001-dry-run'
-      }
-    }
+        idempotencyKey: 'idem-pms-checkout-1001-dry-run',
+      },
+    },
   };
-}
-
-function dryRunProjectionWithPendingAction() {
-  const projection = dryRunProjection();
-  projection.feishuProjection.payload.confirmAction.pendingAction = {
-    pendingActionRef: 'pa-reservation-draft-1001',
-    cardPayloadRef: 'card-reservation-draft-1001',
-    scope: {
-      propertyId: 'hotel-1',
-      channel: 'typed_card',
-      tenantIdHash: 'sha256:tenant-1',
-      chatIdHash: 'sha256:oc-chat-1',
-      userIdHash: 'sha256:frontdesk-1'
-    }
-  };
-  return projection;
 }
 
 function resultProjection() {
@@ -90,856 +85,112 @@ function resultProjection() {
         idempotencyKey: 'idem-pms-checkout-1001-confirm',
         housekeepingTaskId: 'task-checkout-1001',
         auditId: 'audit-checkout-1001',
-        eventTypes: ['RoomCheckedOut', 'HousekeepingTaskCreated']
-      }
-    }
+        eventTypes: ['RoomCheckedOut', 'HousekeepingTaskCreated'],
+      },
+    },
   };
 }
 
-function failedResultProjection() {
-  const projection = resultProjection();
-  projection.feishuProjection.payload = {
-    roomId: 'room-1001',
-    roomNumber: '1001',
-    actor: { type: 'human', id: 'frontdesk-1', displayName: 'Front Desk' },
-    correlationId: 'corr-pms-checkout-1001',
-    idempotencyKey: 'idem-pms-checkout-1001-confirm',
-    errors: [
-      {
-        code: 'ROOM_NOT_CHECKOUTABLE',
-        message: 'Room is not in a checkoutable occupancy state.',
-        field: 'room.occupancyStatus'
-      }
-    ]
-  };
-  return projection;
-}
-
-function createPmsRouter(callbackForwarder = { forwardCallback: vi.fn().mockResolvedValue({ statusCode: 202, body: { code: 0 } }) }) {
-  const registry = createProviderRegistry({
-    allowedProviderKeys: [PMS_CHECKOUT_PROVIDER_KEY]
-  });
+function createRouter(callbackForwarder = { forwardCallback: vi.fn().mockResolvedValue({ statusCode: 202, body: { code: 0 } }) }) {
+  const registry = createProviderRegistry({ allowedProviderKeys: [PMS_CHECKOUT_PROVIDER_KEY] });
   registerProvider(registry, createPmsCheckoutProvider({ callbackForwarder }));
+  return createProviderRouter(registry, { defaultProviderKey: PMS_CHECKOUT_PROVIDER_KEY, allowProviderOverride: true });
+}
+
+function cardAction(actionPayload: unknown) {
   return {
-    router: createProviderRouter(registry),
-    callbackForwarder
+    method: 'POST',
+    rawBody: JSON.stringify({
+      token: 'verification-token-1',
+      action: { value: actionPayload },
+      operator: { open_id: 'frontdesk-1' },
+      tenant_key: 'tenant-1',
+      open_chat_id: 'oc-chat-1',
+    }),
   };
 }
 
-function realFeishuCardActionEnvelope(actionPayload, overrides = {}) {
-  return {
-    schema: '2.0',
-    header: {
-      event_id: 'evt-card-action-1',
-      event_type: 'card.action.trigger',
-      token: 'feishu-token-1'
-    },
-    event: {
-      operator: {
-        user_id: 'frontdesk-1',
-        open_id: 'ou-frontdesk-1',
-        name: 'Front Desk'
-      },
-      context: {
-        open_message_id: 'om_123',
-        open_chat_id: 'oc-chat-1'
-      },
-      action: {
-        tag: 'button',
-        value: actionPayload
-      }
-    },
-    ...overrides
-  };
-}
-
-describe('pms-checkout runtime provider', () => {
-  it('validates dry-run projection payloads, persists pending action before delivery, and emits a confirm button', async () => {
-    const replySink = {
-      sendNotification: vi.fn().mockResolvedValue({
-        providerKey: PMS_CHECKOUT_PROVIDER_KEY,
-        deliveryId: 'delivery-pms-checkout-dry-run',
-        channel: 'feishu',
-        status: 'delivered'
-      })
-    };
-    const pendingStore = createPendingStore({
-      ttlMs: 10_000,
-      now: () => 1_000,
-      idGenerator: () => 'pending-1001'
-    });
-    const { router } = createPmsRouter();
-
+describe('pms-checkout platform-only provider', () => {
+  it('renders dry-run cards, stores pending state, and emits platform callback payloads', async () => {
+    const replySink = { sendNotification: vi.fn().mockResolvedValue({ ok: true }) };
+    const pendingStore = createPendingStore({ ttlMs: 60_000 });
     const response = await dispatchProviderWebhookRequest(
-      {
-        method: 'POST',
-        pathname: '/providers/webhook',
-        rawBody: JSON.stringify(dryRunProjection())
-      },
-      {
-        providerRouter: router,
-        replySink,
-        pendingStore,
-        now: () => '2026-04-26T00:00:02.000Z'
-      }
+      { method: 'POST', rawBody: JSON.stringify(dryRunProjection()) },
+      { providerRouter: createRouter(), replySink, pendingStore }
     );
 
-    expect(response).toEqual({
-      statusCode: 202,
-      body: {
-        code: 0,
-        providerKey: PMS_CHECKOUT_PROVIDER_KEY,
-        status: 'delivered'
-      }
-    });
-    expect(pendingStore.get(PMS_CHECKOUT_PROVIDER_KEY, 'pending-1001')).toMatchObject({
-      providerKey: PMS_CHECKOUT_PROVIDER_KEY,
-      actionId: 'pms.checkout.confirm',
-      target: {
-        channel: 'feishu',
-        chatId: 'oc-chat-1'
-      },
-      payload: expect.objectContaining({
-        roomId: 'room-1001',
-        correlationId: 'corr-pms-checkout-1001'
-      })
-    });
-    expect(replySink.sendNotification).toHaveBeenCalledWith(
-      expect.objectContaining({
-        providerKey: PMS_CHECKOUT_PROVIDER_KEY,
-        target: {
-          channel: 'feishu',
-          chatId: 'oc-chat-1'
-        },
-        actions: [
-          expect.objectContaining({
-            actionId: 'pms.checkout.confirm',
-            payload: expect.objectContaining({
-              pendingId: 'pending-1001',
-              idempotencyKey: 'idem-pms-checkout-1001-confirm',
-              requestFingerprint: 'sha256:pms-checkout-confirm-1001',
-              dryRunIdentity: expect.objectContaining({
-                idempotencyKey: 'idem-pms-checkout-1001-dry-run'
-              }),
-              confirmIdentity: expect.objectContaining({
-                idempotencyKey: 'idem-pms-checkout-1001-confirm'
-              })
-            })
-          })
-        ]
-      })
-    );
+    expect(response).toEqual({ statusCode: 202, body: { code: 0, status: undefined, providerKey: PMS_CHECKOUT_PROVIDER_KEY } });
+    const notification = replySink.sendNotification.mock.calls[0]?.[0];
+    expect(notification.actions[0].payload.pendingAction.pendingActionRef).toBe('pa-checkout-1001');
+    expect(pendingStore.get(PMS_CHECKOUT_PROVIDER_KEY, notification.actions[0].payload.pendingId)).toBeDefined();
   });
 
-  it('delivers PMS result projections without creating pending state', async () => {
-    const replySink = {
-      sendNotification: vi.fn().mockResolvedValue({
-        providerKey: PMS_CHECKOUT_PROVIDER_KEY,
-        deliveryId: 'delivery-pms-checkout-result',
-        channel: 'feishu',
-        status: 'delivered'
-      })
-    };
-    const pendingStore = createPendingStore({ ttlMs: 10_000 });
-    const { router } = createPmsRouter();
-
-    const response = await dispatchProviderWebhookRequest(
-      {
-        method: 'POST',
-        pathname: '/providers/webhook',
-        rawBody: JSON.stringify(resultProjection())
-      },
-      {
-        providerRouter: router,
-        replySink,
-        pendingStore,
-        now: () => '2026-04-26T00:01:02.000Z'
-      }
-    );
-
-    expect(response.body).toMatchObject({
-      code: 0,
-      providerKey: PMS_CHECKOUT_PROVIDER_KEY,
-      status: 'delivered'
-    });
-    expect(pendingStore.list(PMS_CHECKOUT_PROVIDER_KEY)).toEqual([]);
-    expect(replySink.sendNotification).toHaveBeenCalledWith(
-      expect.objectContaining({
-        title: '退房完成：房间 1001',
-        facts: expect.arrayContaining([
-          { label: '保洁任务', value: 'task-checkout-1001' },
-          { label: '审计记录', value: 'audit-checkout-1001' },
-          { label: '事件', value: '房间已退房、已创建保洁任务' }
-        ])
-      })
-    );
-  });
-
-  it('delivers PMS failure result projections as structured Feishu feedback', async () => {
-    const replySink = {
-      sendNotification: vi.fn().mockResolvedValue({
-        providerKey: PMS_CHECKOUT_PROVIDER_KEY,
-        deliveryId: 'delivery-pms-checkout-result-failed',
-        channel: 'feishu',
-        status: 'delivered'
-      })
-    };
-    const { router } = createPmsRouter();
-
-    const response = await dispatchProviderWebhookRequest(
-      {
-        method: 'POST',
-        pathname: '/providers/webhook',
-        rawBody: JSON.stringify(failedResultProjection())
-      },
-      {
-        providerRouter: router,
-        replySink
-      }
-    );
-
-    expect(response.body).toMatchObject({
-      code: 0,
-      providerKey: PMS_CHECKOUT_PROVIDER_KEY,
-      status: 'delivered'
-    });
-    expect(replySink.sendNotification).toHaveBeenCalledWith(
-      expect.objectContaining({
-        title: '退房失败：房间 1001',
-        severity: 'warning',
-        summary: 'PMS 拒绝了退房命令，请按关联号排查。'
-      })
-    );
-  });
-
-  it('forwards typed confirm callbacks, consumes pending state, and rejects duplicate stale clicks', async () => {
-    const replySink = {
-      sendNotification: vi.fn().mockResolvedValue({
-        providerKey: PMS_CHECKOUT_PROVIDER_KEY,
-        deliveryId: 'delivery-pms-checkout-dry-run',
-        channel: 'feishu',
-        status: 'delivered'
-      })
-    };
-    const pendingStore = createPendingStore({
-      ttlMs: 10_000,
-      now: () => 1_000,
-      idGenerator: () => 'pending-1001'
-    });
-    const callbackForwarder = {
-      forwardCallback: vi.fn().mockResolvedValue({ statusCode: 202, body: { code: 0 } })
-    };
-    const { router } = createPmsRouter(callbackForwarder);
-
-    await dispatchProviderWebhookRequest(
-      {
-        method: 'POST',
-        pathname: '/providers/webhook',
-        rawBody: JSON.stringify(dryRunProjection())
-      },
-      {
-        providerRouter: router,
-        replySink,
-        pendingStore,
-        now: () => '2026-04-26T00:00:02.000Z'
-      }
-    );
-
-    const actionPayload = replySink.sendNotification.mock.calls[0][0].actions[0].payload;
-    const first = await dispatchCardActionRequest(
-      {
-        method: 'POST',
-        pathname: '/webhook/card',
-        rawBody: JSON.stringify(realFeishuCardActionEnvelope(actionPayload))
-      },
-      {
-        providerRouter: router,
-        pendingStore,
-        replySink,
-        verificationToken: 'feishu-token-1',
-        now: () => '2026-04-26T00:01:00.000Z'
-      }
-    );
-    const second = await dispatchCardActionRequest(
-      {
-        method: 'POST',
-        pathname: '/webhook/card',
-        rawBody: JSON.stringify(realFeishuCardActionEnvelope(actionPayload))
-      },
-      {
-        providerRouter: router,
-        pendingStore,
-        replySink,
-        verificationToken: 'feishu-token-1',
-        now: () => '2026-04-26T00:01:01.000Z'
-      }
-    );
-
-    expect(first).toEqual({
-      statusCode: 200,
-      body: {
-        code: 0,
-        providerKey: PMS_CHECKOUT_PROVIDER_KEY,
-        status: 'accepted'
-      }
-    });
-    expect(second).toEqual({
-      statusCode: 404,
-      body: {
-        code: 404,
-        message: 'pending_not_found'
-      }
-    });
-    expect(pendingStore.get(PMS_CHECKOUT_PROVIDER_KEY, 'pending-1001')).toBeUndefined();
-    expect(callbackForwarder.forwardCallback).toHaveBeenCalledTimes(1);
-    expect(callbackForwarder.forwardCallback).toHaveBeenCalledWith(
-      expect.objectContaining({
-        envelope: expect.objectContaining({
-          source: 'adapter-feishu',
-          actor: expect.objectContaining({ id: 'frontdesk-1', displayName: 'Front Desk' }),
-          orchestrator: expect.objectContaining({
-            toolName: 'ai_pms.pms_checkout.confirm_callback',
-            pendingId: 'pending-1001',
-            roomId: 'room-1001',
-            dryRunIdentity: expect.objectContaining({
-              idempotencyKey: 'idem-pms-checkout-1001-dry-run'
-            }),
-            confirmIdentity: expect.objectContaining({
-              idempotencyKey: 'idem-pms-checkout-1001-confirm',
-              confirmMode: 'confirm'
-            }),
-            callbackForwardingEnvelope: expect.objectContaining({
-              auth: {
-                type: 'shared-secret-header',
-                headerName: 'X-AI-PMS-CALLBACK-TOKEN',
-                envName: 'AI_PMS_CALLBACK_TOKEN',
-                valueStoredInRepo: false
-              }
-            })
-          })
-        })
-      })
-    );
-  });
-
-  it('forwards pending-action confirm callbacks to pms-platform when explicit platform mode is configured', async () => {
-    const replySink = {
-      sendNotification: vi.fn().mockResolvedValue({
-        providerKey: PMS_CHECKOUT_PROVIDER_KEY,
-        deliveryId: 'delivery-pms-checkout-dry-run',
-        channel: 'feishu',
-        status: 'delivered'
-      })
-    };
-    const pendingStore = createPendingStore({
-      ttlMs: 10_000,
-      now: () => 1_000,
-      idGenerator: () => 'pending-1001'
-    });
-    const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true, status: 'ok' }), { status: 202 }));
-    const callbackForwarder = createPmsCheckoutPlatformPendingActionCallbackForwarder({
-      baseUrl: 'http://127.0.0.1:8793/',
-      token: 'platform-token-1',
-      fetchImpl
-    });
-    const { router } = createPmsRouter(callbackForwarder);
-
-    await dispatchProviderWebhookRequest(
-      {
-        method: 'POST',
-        pathname: '/providers/webhook',
-        rawBody: JSON.stringify(dryRunProjectionWithPendingAction())
-      },
-      { providerRouter: router, replySink, pendingStore }
-    );
-    const actionPayload = replySink.sendNotification.mock.calls[0][0].actions[0].payload;
-
-    const response = await dispatchCardActionRequest(
-      {
-        method: 'POST',
-        pathname: '/webhook/card',
-        rawBody: JSON.stringify(realFeishuCardActionEnvelope(actionPayload))
-      },
-      {
-        providerRouter: router,
-        pendingStore,
-        replySink,
-        verificationToken: 'feishu-token-1',
-        now: () => '2026-04-26T00:01:00.000Z'
-      }
-    );
-
-    expect(response).toEqual({
-      statusCode: 200,
-      body: {
-        code: 0,
-        providerKey: PMS_CHECKOUT_PROVIDER_KEY,
-        status: 'accepted'
-      }
-    });
-    expect(fetchImpl).toHaveBeenCalledWith(
-      'http://127.0.0.1:8793/v1/pms/pending-actions/confirm',
-      expect.objectContaining({
-        method: 'POST',
-        headers: expect.objectContaining({
-          'content-type': 'application/json',
-          authorization: 'Bearer platform-token-1'
-        })
-      })
-    );
-    const body = JSON.parse(String(fetchImpl.mock.calls[0][1]?.body));
-    expect(body).toMatchObject({
-      operation: 'pms.pending_action.confirm',
-      pendingActionRef: 'pa-reservation-draft-1001',
-      cardPayloadRef: 'card-reservation-draft-1001',
-      actor: { type: 'human', id: 'frontdesk-1', displayName: 'Front Desk' },
-      scope: {
-        propertyId: 'hotel-1',
-        channel: 'typed_card',
-        tenantIdHash: 'sha256:tenant-1',
-        chatIdHash: 'sha256:oc-chat-1',
-        userIdHash: 'sha256:frontdesk-1'
-      },
-      clientToken: 'idem-pms-checkout-1001-confirm',
-      requestFingerprint: 'sha256:pms-checkout-confirm-1001',
-      correlationId: 'corr-pms-checkout-1001',
-      requestedAt: '2026-04-26T00:01:00.000Z'
-    });
-    expect(pendingStore.get(PMS_CHECKOUT_PROVIDER_KEY, 'pending-1001')).toBeUndefined();
-  });
-
-  it('rejects pending-action scope hash tampering without consuming or forwarding pending state', async () => {
-    const replySink = {
-      sendNotification: vi.fn().mockResolvedValue({
-        providerKey: PMS_CHECKOUT_PROVIDER_KEY,
-        deliveryId: 'delivery-pms-checkout-dry-run',
-        channel: 'feishu',
-        status: 'delivered'
-      })
-    };
-    const pendingStore = createPendingStore({
-      ttlMs: 10_000,
-      now: () => 1_000,
-      idGenerator: () => 'pending-1001'
-    });
-    const callbackForwarder = { forwardCallback: vi.fn().mockResolvedValue({ statusCode: 202, body: { code: 0 } }) };
-    const { router } = createPmsRouter(callbackForwarder);
-
-    await dispatchProviderWebhookRequest(
-      {
-        method: 'POST',
-        pathname: '/providers/webhook',
-        rawBody: JSON.stringify(dryRunProjectionWithPendingAction())
-      },
-      { providerRouter: router, replySink, pendingStore }
-    );
-    const actionPayload = {
-      ...replySink.sendNotification.mock.calls[0][0].actions[0].payload,
-      pendingAction: {
-        ...replySink.sendNotification.mock.calls[0][0].actions[0].payload.pendingAction,
-        scope: {
-          ...replySink.sendNotification.mock.calls[0][0].actions[0].payload.pendingAction.scope,
-          userIdHash: 'sha256:attacker'
-        }
-      }
-    };
-
-    const response = await dispatchCardActionRequest(
-      {
-        method: 'POST',
-        pathname: '/webhook/card',
-        rawBody: JSON.stringify(realFeishuCardActionEnvelope(actionPayload))
-      },
-      { providerRouter: router, pendingStore, replySink, verificationToken: 'feishu-token-1' }
-    );
-
-    expect(response).toEqual({
-      statusCode: 409,
-      body: {
-        code: 409,
-        providerKey: PMS_CHECKOUT_PROVIDER_KEY,
-        message: 'pending_action_mismatch'
-      }
-    });
-    expect(pendingStore.get(PMS_CHECKOUT_PROVIDER_KEY, 'pending-1001')).toBeDefined();
-    expect(callbackForwarder.forwardCallback).not.toHaveBeenCalled();
-  });
-
-  it('falls back to ai-pms and consumes pending state when platform shadow callback is unavailable', async () => {
-    const replySink = {
-      sendNotification: vi.fn().mockResolvedValue({
-        providerKey: PMS_CHECKOUT_PROVIDER_KEY,
-        deliveryId: 'delivery-pms-checkout-dry-run',
-        channel: 'feishu',
-        status: 'delivered'
-      })
-    };
-    const pendingStore = createPendingStore({
-      ttlMs: 10_000,
-      now: () => 1_000,
-      idGenerator: () => 'pending-1001'
-    });
-    const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: false }), { status: 503 }));
-    const fallbackForwarder = { forwardCallback: vi.fn().mockResolvedValue({ statusCode: 202, body: { code: 0 } }) };
-    const callbackForwarder = createPmsCheckoutPlatformPendingActionCallbackForwarder({
-      baseUrl: 'http://127.0.0.1:8793',
+  it('forwards typed card confirms only to fixed pms-platform pending-action endpoints', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({ code: 0, status: 'confirmed' }), { status: 202 }));
+    const forwarder = createPmsCheckoutPlatformPendingActionCallbackForwarder({
+      baseUrl: 'http://127.0.0.1:8791',
       token: 'platform-token-1',
       fetchImpl,
-      fallbackForwarder,
-      mode: 'platform_shadow'
     });
-    const { router } = createPmsRouter(callbackForwarder);
-
+    const replySink = { sendNotification: vi.fn().mockResolvedValue({ ok: true }) };
+    const pendingStore = createPendingStore({ ttlMs: 60_000 });
     await dispatchProviderWebhookRequest(
-      {
-        method: 'POST',
-        pathname: '/providers/webhook',
-        rawBody: JSON.stringify(dryRunProjectionWithPendingAction())
-      },
-      { providerRouter: router, replySink, pendingStore }
+      { method: 'POST', rawBody: JSON.stringify(dryRunProjection()) },
+      { providerRouter: createRouter(forwarder), replySink, pendingStore }
     );
     const actionPayload = replySink.sendNotification.mock.calls[0][0].actions[0].payload;
 
-    const response = await dispatchCardActionRequest(
-      {
-        method: 'POST',
-        pathname: '/webhook/card',
-        rawBody: JSON.stringify(realFeishuCardActionEnvelope(actionPayload))
-      },
-      { providerRouter: router, pendingStore, replySink, verificationToken: 'feishu-token-1' }
-    );
-
-    expect(response).toEqual({
-      statusCode: 200,
-      body: {
-        code: 0,
-        providerKey: PMS_CHECKOUT_PROVIDER_KEY,
-        status: 'accepted'
-      }
-    });
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
-    expect(fallbackForwarder.forwardCallback).toHaveBeenCalledTimes(1);
-    expect(fallbackForwarder.forwardCallback).toHaveBeenCalledWith(
-      expect.objectContaining({
-        envelope: expect.objectContaining({
-          source: 'adapter-feishu',
-          platformPendingAction: expect.objectContaining({ operation: 'pms.pending_action.confirm' }),
-          orchestrator: expect.objectContaining({ pendingId: 'pending-1001' })
-        })
-      })
-    );
-    expect(pendingStore.get(PMS_CHECKOUT_PROVIDER_KEY, 'pending-1001')).toBeUndefined();
-  });
-
-  it('does not hide ai-pms fallback forwarding in explicit platform mode', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: false }), { status: 503 }));
-    const fallbackForwarder = { forwardCallback: vi.fn().mockResolvedValue({ statusCode: 202, body: { code: 0 } }) };
-    const forwarder = createPmsCheckoutPlatformPendingActionCallbackForwarder({
-      baseUrl: 'http://127.0.0.1:8793',
-      token: 'platform-token-1',
-      fetchImpl,
-      fallbackForwarder,
-      mode: 'platform'
+    const response = await dispatchCardActionRequest(cardAction(actionPayload), {
+      providerRouter: createRouter(forwarder),
+      pendingStore,
+      verificationToken: 'verification-token-1',
     });
 
-    await expect(forwarder.forwardCallback({
-      envelope: {
-        platformPendingAction: {
-          operation: 'pms.pending_action.confirm',
-          request: {
-            pendingActionRef: 'pa-1001',
-            actor: { type: 'human', id: 'frontdesk-1' },
-            scope: { propertyId: 'hotel-1', channel: 'typed_card' },
-            clientToken: 'client-token-1',
-            requestFingerprint: 'sha256:fingerprint-1',
-            correlationId: 'corr-1',
-            requestedAt: '2026-04-26T00:01:00.000Z',
-            cardPayloadRef: 'card-1001'
-          }
-        }
-      }
-    })).rejects.toThrow(/pms_pending_action_callback_forward_failed:503/);
-
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
-    expect(fallbackForwarder.forwardCallback).not.toHaveBeenCalled();
-  });
-
-  it('requires typed platform pending-action payloads in explicit platform mode', async () => {
-    const fallbackForwarder = { forwardCallback: vi.fn().mockResolvedValue({ statusCode: 202, body: { code: 0 } }) };
-    const forwarder = createPmsCheckoutPlatformPendingActionCallbackForwarder({
-      baseUrl: 'http://127.0.0.1:8793',
-      token: 'platform-token-1',
-      fetchImpl: vi.fn(),
-      fallbackForwarder,
-      mode: 'platform'
-    });
-
-    await expect(forwarder.forwardCallback({ envelope: { source: 'adapter-feishu' } })).rejects.toThrow(
-      /pms_pending_action_callback_payload_required/
-    );
-    expect(fallbackForwarder.forwardCallback).not.toHaveBeenCalled();
-  });
-
-  it('retains pending state when the explicit platform pending-action callback is unavailable', async () => {
-    const replySink = {
-      sendNotification: vi.fn().mockResolvedValue({
-        providerKey: PMS_CHECKOUT_PROVIDER_KEY,
-        deliveryId: 'delivery-pms-checkout-dry-run',
-        channel: 'feishu',
-        status: 'delivered'
-      })
-    };
-    const pendingStore = createPendingStore({
-      ttlMs: 10_000,
-      now: () => 1_000,
-      idGenerator: () => 'pending-1001'
-    });
-    const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: false }), { status: 503 }));
-    const callbackForwarder = createPmsCheckoutPlatformPendingActionCallbackForwarder({
-      baseUrl: 'http://127.0.0.1:8793',
-      token: 'platform-token-1',
-      fetchImpl
-    });
-    const { router } = createPmsRouter(callbackForwarder);
-
-    await dispatchProviderWebhookRequest(
-      {
-        method: 'POST',
-        pathname: '/providers/webhook',
-        rawBody: JSON.stringify(dryRunProjectionWithPendingAction())
-      },
-      { providerRouter: router, replySink, pendingStore }
-    );
-    const actionPayload = replySink.sendNotification.mock.calls[0][0].actions[0].payload;
-
-    const response = await dispatchCardActionRequest(
-      {
-        method: 'POST',
-        pathname: '/webhook/card',
-        rawBody: JSON.stringify(realFeishuCardActionEnvelope(actionPayload))
-      },
-      { providerRouter: router, pendingStore, replySink, verificationToken: 'feishu-token-1' }
-    );
-
-    expect(response).toEqual({
-      statusCode: 502,
-      body: {
-        code: 502,
-        providerKey: PMS_CHECKOUT_PROVIDER_KEY,
-        message: 'callback_forward_failed',
-        error: 'pms_pending_action_callback_forward_failed:503'
-      }
-    });
-    const publicResponse = JSON.stringify(response.body);
-    expect(publicResponse).not.toContain('platform-token-1');
-    expect(publicResponse).not.toContain('http://127.0.0.1:8793');
-    expect(publicResponse).not.toContain('ou-frontdesk-1');
-    expect(publicResponse).not.toContain('pa-reservation-draft-1001');
-    expect(publicResponse).not.toContain('card-reservation-draft-1001');
-    expect(publicResponse).not.toContain('idem-pms-checkout-1001-confirm');
-    expect(publicResponse).not.toContain('corr-pms-checkout-1001');
-    expect(pendingStore.get(PMS_CHECKOUT_PROVIDER_KEY, 'pending-1001')).toBeDefined();
-  });
-
-  it('uses fixed pms-platform pending-action status and cancel endpoints without endpoint templating', async () => {
-    const fetchImpl = vi.fn().mockImplementation(() =>
-      Promise.resolve(new Response(JSON.stringify({ ok: true }), { status: 202 }))
-    );
-    const forwarder = createPmsCheckoutPlatformPendingActionCallbackForwarder({
-      baseUrl: 'http://127.0.0.1:8793/',
-      token: 'platform-token-1',
-      fetchImpl
-    });
-    const baseRequest = {
-      pendingActionRef: 'pa-1001',
-      actor: { type: 'human', id: 'frontdesk-1' },
-      scope: { propertyId: 'hotel-1', channel: 'typed_card' },
-      clientToken: 'client-token-1',
-      requestFingerprint: 'sha256:fingerprint-1',
-      correlationId: 'corr-1',
-      requestedAt: '2026-04-26T00:01:00.000Z'
-    };
-
-    await forwarder.forwardCallback({
-      envelope: {
-        platformPendingAction: {
-          operation: 'pms.pending_action.status',
-          request: baseRequest
-        }
-      }
-    });
-    await forwarder.forwardCallback({
-      envelope: {
-        platformPendingAction: {
-          operation: 'pms.pending_action.cancel',
-          request: { ...baseRequest, reason: 'typed-card-cancelled' }
-        }
-      }
-    });
-
-    expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual([
-      'http://127.0.0.1:8793/v1/pms/pending-actions/status',
-      'http://127.0.0.1:8793/v1/pms/pending-actions/cancel'
-    ]);
-  });
-
-  it('rejects provider/action mismatches without consuming or forwarding pending state', async () => {
-    const replySink = {
-      sendNotification: vi.fn().mockResolvedValue({
-        providerKey: PMS_CHECKOUT_PROVIDER_KEY,
-        deliveryId: 'delivery-pms-checkout-dry-run',
-        channel: 'feishu',
-        status: 'delivered'
-      })
-    };
-    const pendingStore = createPendingStore({
-      ttlMs: 10_000,
-      now: () => 1_000,
-      idGenerator: () => 'pending-1001'
-    });
-    const callbackForwarder = {
-      forwardCallback: vi.fn().mockResolvedValue({ statusCode: 202, body: { code: 0 } })
-    };
-    const { router } = createPmsRouter(callbackForwarder);
-
-    await dispatchProviderWebhookRequest(
-      {
-        method: 'POST',
-        pathname: '/providers/webhook',
-        rawBody: JSON.stringify(dryRunProjection())
-      },
-      { providerRouter: router, replySink, pendingStore }
-    );
-    const actionPayload = {
-      ...replySink.sendNotification.mock.calls[0][0].actions[0].payload,
-      actionId: 'pms.checkout.wrong-action'
-    };
-
-    const response = await dispatchCardActionRequest(
-      {
-        method: 'POST',
-        pathname: '/webhook/card',
-        rawBody: JSON.stringify(realFeishuCardActionEnvelope(actionPayload))
-      },
-      { providerRouter: router, pendingStore, replySink, verificationToken: 'feishu-token-1' }
-    );
-
-    expect(response).toEqual({
-      statusCode: 409,
-      body: {
-        code: 409,
-        message: 'action_mismatch'
-      }
-    });
-    expect(pendingStore.get(PMS_CHECKOUT_PROVIDER_KEY, 'pending-1001')).toBeDefined();
-    expect(callbackForwarder.forwardCallback).not.toHaveBeenCalled();
-  });
-
-  it('rejects stale real Feishu card-action callbacks after pending TTL without forwarding', async () => {
-    const replySink = {
-      sendNotification: vi.fn().mockResolvedValue({
-        providerKey: PMS_CHECKOUT_PROVIDER_KEY,
-        deliveryId: 'delivery-pms-checkout-dry-run',
-        channel: 'feishu',
-        status: 'delivered'
-      })
-    };
-    let nowMs = 1_000;
-    const pendingStore = createPendingStore({
-      ttlMs: 10,
-      now: () => nowMs,
-      idGenerator: () => 'pending-1001'
-    });
-    const callbackForwarder = {
-      forwardCallback: vi.fn().mockResolvedValue({ statusCode: 202, body: { code: 0 } })
-    };
-    const { router } = createPmsRouter(callbackForwarder);
-
-    await dispatchProviderWebhookRequest(
-      {
-        method: 'POST',
-        pathname: '/providers/webhook',
-        rawBody: JSON.stringify(dryRunProjection())
-      },
-      { providerRouter: router, replySink, pendingStore }
-    );
-    const actionPayload = replySink.sendNotification.mock.calls[0][0].actions[0].payload;
-    nowMs = 2_000;
-
-    const response = await dispatchCardActionRequest(
-      {
-        method: 'POST',
-        pathname: '/webhook/card',
-        rawBody: JSON.stringify(realFeishuCardActionEnvelope(actionPayload))
-      },
-      { providerRouter: router, pendingStore, replySink, verificationToken: 'feishu-token-1' }
-    );
-
-    expect(response).toEqual({
-      statusCode: 404,
-      body: {
-        code: 404,
-        message: 'pending_not_found'
-      }
-    });
-    expect(callbackForwarder.forwardCallback).not.toHaveBeenCalled();
-  });
-
-  it('sends the configured shared-secret header when forwarding callbacks over HTTP', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({ code: 0 }), { status: 202 }));
-    const forwarder = createPmsCheckoutHttpCallbackForwarder({
-      url: 'http://127.0.0.1:8792/pms/checkout/callback',
-      token: 'callback-token-1',
-      fetchImpl
-    });
-
-    await forwarder.forwardCallback({
-      envelope: {
-        source: 'adapter-feishu'
-      }
-    });
-
+    expect(response.statusCode).toBe(200);
     expect(fetchImpl).toHaveBeenCalledWith(
-      'http://127.0.0.1:8792/pms/checkout/callback',
+      'http://127.0.0.1:8791/v1/pms/pending-actions/confirm',
       expect.objectContaining({
         method: 'POST',
-        headers: expect.objectContaining({
-          'content-type': 'application/json',
-          'X-AI-PMS-CALLBACK-TOKEN': 'callback-token-1'
-        })
+        headers: expect.objectContaining({ authorization: 'Bearer platform-token-1' }),
       })
     );
+    const requestBody = JSON.parse(String(fetchImpl.mock.calls[0][1].body));
+    expect(requestBody.operation).toBe('pms.pending_action.confirm');
+    expect(requestBody.pendingActionRef).toBe('pa-checkout-1001');
+    expect(pendingStore.get(PMS_CHECKOUT_PROVIDER_KEY, actionPayload.pendingId)).toBeUndefined();
   });
 
-  it('returns a provider delivery failure while retaining pending lineage when Feishu delivery fails', async () => {
-    const replySink = {
-      sendNotification: vi.fn().mockRejectedValue(new Error('feishu delivery failed'))
-    };
-    const pendingStore = createPendingStore({
-      ttlMs: 10_000,
-      now: () => 1_000,
-      idGenerator: () => 'pending-1001'
-    });
-    const { router } = createPmsRouter();
+  it('retains pending state when platform callback forwarding fails', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({ code: 503 }), { status: 503 }));
+    const forwarder = createPmsCheckoutPlatformPendingActionCallbackForwarder({ baseUrl: 'http://127.0.0.1:8791', token: 'platform-token-1', fetchImpl });
+    const replySink = { sendNotification: vi.fn().mockResolvedValue({ ok: true }) };
+    const pendingStore = createPendingStore({ ttlMs: 60_000 });
+    await dispatchProviderWebhookRequest(
+      { method: 'POST', rawBody: JSON.stringify(dryRunProjection()) },
+      { providerRouter: createRouter(forwarder), replySink, pendingStore }
+    );
+    const actionPayload = replySink.sendNotification.mock.calls[0][0].actions[0].payload;
 
+    const response = await dispatchCardActionRequest(cardAction(actionPayload), {
+      providerRouter: createRouter(forwarder),
+      pendingStore,
+      verificationToken: 'verification-token-1',
+    });
+
+    expect(response.statusCode).toBe(502);
+    expect(pendingStore.get(PMS_CHECKOUT_PROVIDER_KEY, actionPayload.pendingId)).toBeDefined();
+  });
+
+  it('delivers result projections without creating pending state', async () => {
+    const replySink = { sendNotification: vi.fn().mockResolvedValue({ ok: true }) };
+    const pendingStore = createPendingStore({ ttlMs: 60_000 });
     const response = await dispatchProviderWebhookRequest(
-      {
-        method: 'POST',
-        pathname: '/providers/webhook',
-        rawBody: JSON.stringify(dryRunProjection())
-      },
-      { providerRouter: router, replySink, pendingStore }
+      { method: 'POST', rawBody: JSON.stringify(resultProjection()) },
+      { providerRouter: createRouter(), replySink, pendingStore }
     );
 
-    expect(response).toEqual({
-      statusCode: 502,
-      body: {
-        code: 502,
-        providerKey: PMS_CHECKOUT_PROVIDER_KEY,
-        message: 'provider_delivery_failed',
-        error: 'feishu delivery failed'
-      }
-    });
-    expect(pendingStore.get(PMS_CHECKOUT_PROVIDER_KEY, 'pending-1001')).toBeDefined();
+    expect(response.statusCode).toBe(202);
+    expect(replySink.sendNotification.mock.calls[0][0].title).toContain('退房完成');
+    expect(pendingStore.list()).toEqual([]);
   });
 });

@@ -653,7 +653,7 @@ describe('PMS Base projection wrappers', () => {
           operator: 'frontdesk-alpha',
           reason: 'guest arrival',
           requestedAt: '2026-04-28T00:00:00.000Z',
-          payloadJSON: '{"source":"ai-pms"}',
+          payloadJSON: '{"source":"pms-platform"}',
           resultJSON: '{"phase":"dryRun"}',
           schemaVersion: PMS_BASE_PROJECTION_SCHEMA_VERSION
         }
@@ -688,7 +688,7 @@ describe('PMS Base projection wrappers', () => {
         Operator: 'frontdesk-alpha',
         Reason: 'guest arrival',
         RequestedAt: 1777334400000,
-        PayloadJSON: '{"source":"ai-pms"}',
+        PayloadJSON: '{"source":"pms-platform"}',
         ResultJSON: '{"phase":"dryRun"}',
         SchemaVersion: PMS_BASE_PROJECTION_SCHEMA_VERSION
       }

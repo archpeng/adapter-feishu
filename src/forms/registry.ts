@@ -7,7 +7,7 @@ export interface ManagedFormBindingPolicy {
   rejectUnmappedFields: boolean;
 }
 
-export type ManagedFormDeliveryKind = 'base_record' | 'ai_pms_operation_request_intake';
+export type ManagedFormDeliveryKind = 'base_record';
 
 export interface ManagedFormDelivery {
   kind: ManagedFormDeliveryKind;
@@ -117,14 +117,12 @@ function parseManagedFormBinding(
   }
 
   const delivery = parseDelivery(value.delivery, `${prefix}.delivery`, errors);
-  const target = delivery?.kind === 'ai_pms_operation_request_intake'
-    ? parseForwardingTarget(value.target, `${prefix}.target`, errors)
-    : parseTarget(value.target, `${prefix}.target`, errors);
+  const target = parseTarget(value.target, `${prefix}.target`, errors);
   const fieldMap = parseStringMap(value.fieldMap, `${prefix}.fieldMap`, errors, { requireNonEmpty: true });
   const fixedFields = parseFixedFields(value.fixedFields, `${prefix}.fixedFields`, errors);
   const policy = parsePolicy(value.policy, `${prefix}.policy`, errors);
 
-  if (typeof enabled !== 'boolean' || !delivery || target === false || !fieldMap || !fixedFields || !policy) {
+  if (typeof enabled !== 'boolean' || !delivery || !target || !fieldMap || !fixedFields || !policy) {
     return undefined;
   }
 
@@ -154,25 +152,12 @@ function parseDelivery(
   }
 
   const kind = stringValue(value.kind);
-  if (kind !== 'base_record' && kind !== 'ai_pms_operation_request_intake') {
-    errors.push(`${path}.kind must be base_record or ai_pms_operation_request_intake`);
+  if (kind !== 'base_record') {
+    errors.push(`${path}.kind must be base_record`);
     return undefined;
   }
 
   return { kind };
-}
-
-function parseForwardingTarget(
-  value: JsonValue | undefined,
-  path: string,
-  errors: string[]
-): FeishuFormDefaultTargetConfig | undefined | false {
-  if (value !== undefined) {
-    errors.push(`${path} must be omitted for ai_pms_operation_request_intake delivery`);
-    return false;
-  }
-
-  return undefined;
 }
 
 function parseTarget(

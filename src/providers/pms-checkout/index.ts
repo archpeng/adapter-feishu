@@ -6,8 +6,6 @@ import type {
 } from '../contracts.js';
 import type { PendingActionRecord } from '../../state/pendingStore.js';
 import {
-  PMS_CHECKOUT_CALLBACK_AUTH_ENV_NAME,
-  PMS_CHECKOUT_CALLBACK_AUTH_HEADER,
   PMS_CHECKOUT_CONFIRM_ACTION_ID,
   PMS_CHECKOUT_CONFIRM_CALLBACK_HANDLER,
   PMS_CHECKOUT_CONFIRM_CALLBACK_NAME,
@@ -41,38 +39,11 @@ export interface PmsCheckoutProviderOptions {
   callbackForwarder?: ProviderCallbackForwarder;
 }
 
-export interface PmsCheckoutHttpCallbackForwarderOptions {
-  url: string;
-  token: string;
-  headerName?: typeof PMS_CHECKOUT_CALLBACK_AUTH_HEADER;
-  timeoutMs?: number;
-  fetchImpl?: typeof fetch;
-}
-
-export interface PmsCheckoutInboundTurnForwarderOptions {
-  url: string;
-  token: string;
-  headerName?: typeof PMS_CHECKOUT_CALLBACK_AUTH_HEADER;
-  timeoutMs?: number;
-  fetchImpl?: typeof fetch;
-}
-
 export interface PmsCheckoutPlatformPendingActionCallbackForwarderOptions {
   baseUrl: string;
   token: string;
   timeoutMs?: number;
   fetchImpl?: typeof fetch;
-  fallbackForwarder?: ProviderCallbackForwarder;
-  mode?: 'platform' | 'platform_shadow';
-}
-
-export interface PmsCheckoutInboundTurnForwardResult {
-  statusCode: number;
-  body: JsonRecord;
-}
-
-export interface PmsCheckoutInboundTurnForwarder {
-  forwardTurn(turn: InboundTurn): Promise<PmsCheckoutInboundTurnForwardResult>;
 }
 
 export function createPmsCheckoutProvider(
@@ -157,73 +128,17 @@ export function createPmsCheckoutProvider(
   };
 }
 
-export function createPmsCheckoutHttpCallbackForwarder(
-  options: PmsCheckoutHttpCallbackForwarderOptions
-): ProviderCallbackForwarder {
-  const fetchImpl = options.fetchImpl ?? fetch;
-  const headerName = options.headerName ?? PMS_CHECKOUT_CALLBACK_AUTH_HEADER;
-  const timeoutMs = options.timeoutMs ?? 5_000;
-
-  return {
-    async forwardCallback(request) {
-      const abortController = new AbortController();
-      const timeout = setTimeout(() => abortController.abort(), timeoutMs);
-      try {
-        const response = await fetchImpl(options.url, {
-          method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            [headerName]: options.token
-          },
-          body: JSON.stringify(request.envelope),
-          signal: abortController.signal
-        });
-        const body = await parseResponseBody(response);
-        if (!response.ok) {
-          throw new Error(`pms_checkout_callback_forward_failed:${response.status}`);
-        }
-        return {
-          statusCode: response.status,
-          body
-        };
-      } finally {
-        clearTimeout(timeout);
-      }
-    }
-  };
-}
-
 export function createPmsCheckoutPlatformPendingActionCallbackForwarder(
   options: PmsCheckoutPlatformPendingActionCallbackForwarderOptions
 ): ProviderCallbackForwarder {
   const fetchImpl = options.fetchImpl ?? fetch;
   const timeoutMs = options.timeoutMs ?? 5_000;
-  const mode = options.mode ?? 'platform';
 
   return {
     async forwardCallback(request) {
       const platformRequest = platformPendingActionRequestFromEnvelope(request.envelope);
       if (!platformRequest) {
-        if (mode === 'platform_shadow' && options.fallbackForwarder) {
-          return options.fallbackForwarder.forwardCallback(request);
-        }
         throw new Error('pms_pending_action_callback_payload_required');
-      }
-
-      if (mode === 'platform_shadow' && options.fallbackForwarder) {
-        try {
-          await postPlatformPendingActionCallback({
-            baseUrl: options.baseUrl,
-            token: options.token,
-            timeoutMs,
-            fetchImpl,
-            operation: platformRequest.operation,
-            body: platformRequest.request
-          });
-        } catch {
-          // Shadow mode must preserve the existing ai-pms callback path as rollback.
-        }
-        return options.fallbackForwarder.forwardCallback(request);
       }
 
       return postPlatformPendingActionCallback({
@@ -234,48 +149,6 @@ export function createPmsCheckoutPlatformPendingActionCallbackForwarder(
         operation: platformRequest.operation,
         body: platformRequest.request
       });
-    }
-  };
-}
-
-export function createPmsCheckoutHttpInboundTurnForwarder(
-  options: PmsCheckoutInboundTurnForwarderOptions
-): PmsCheckoutInboundTurnForwarder {
-  const fetchImpl = options.fetchImpl ?? fetch;
-  const headerName = options.headerName ?? PMS_CHECKOUT_CALLBACK_AUTH_HEADER;
-  const timeoutMs = options.timeoutMs ?? 5_000;
-
-  return {
-    async forwardTurn(turn) {
-      const abortController = new AbortController();
-      const timeout = setTimeout(() => abortController.abort(), timeoutMs);
-      try {
-        const response = await fetchImpl(options.url, {
-          method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            [headerName]: options.token
-          },
-          body: JSON.stringify({
-            name: 'adapter-feishu-inbound-turn',
-            version: 'v1',
-            source: 'adapter-feishu',
-            providerKey: PMS_CHECKOUT_PROVIDER_KEY,
-            turn
-          }),
-          signal: abortController.signal
-        });
-        const body = await parseResponseBody(response);
-        if (!response.ok) {
-          throw new Error(`pms_checkout_inbound_turn_forward_failed:${response.status}`);
-        }
-        return {
-          statusCode: response.status,
-          body
-        };
-      } finally {
-        clearTimeout(timeout);
-      }
     }
   };
 }
@@ -511,10 +384,10 @@ function buildConfirmCallbackForwardEnvelope(input: {
 
   return ({
     contract: {
-      schema: 'https://github.com/archpeng/ai-pms/contracts/schemas/pms-checkout-orchestrator.schema.json',
-      name: 'pms-checkout-orchestrator',
+      schema: 'https://github.com/archpeng/pms-platform/contracts/schemas/pending-action-callback.schema.json',
+      name: 'pms-platform-pending-action-callback',
       version: 'v1',
-      owner: 'ai-pms',
+      owner: 'pms-platform',
       status: 'adapter-runtime-forward'
     },
     actor,
@@ -559,12 +432,12 @@ function buildConfirmCallbackForwardEnvelope(input: {
         pendingId: input.action.pendingId,
         actionId: PMS_CHECKOUT_CONFIRM_ACTION_ID,
         sourceOwner: 'adapter-feishu',
-        targetOwner: 'ai-pms',
+        targetOwner: 'pms-platform',
         handler: PMS_CHECKOUT_CONFIRM_CALLBACK_HANDLER,
         auth: {
-          type: 'shared-secret-header',
-          headerName: PMS_CHECKOUT_CALLBACK_AUTH_HEADER,
-          envName: PMS_CHECKOUT_CALLBACK_AUTH_ENV_NAME,
+          type: 'bearer-token',
+          headerName: 'Authorization',
+          envName: PMS_PENDING_ACTION_CALLBACK_AUTH_ENV_NAME,
           valueStoredInRepo: false
         },
         mapsTo: {
@@ -576,20 +449,20 @@ function buildConfirmCallbackForwardEnvelope(input: {
       calls: [
         {
           owner: 'pms-platform',
-          wrapper: 'ai_pms.pms.checkout.confirm',
+          wrapper: 'pms-platform.pending_action.confirm',
           operation: 'pms_check_out',
           mode: 'confirm',
           identity: 'confirmIdentity'
         },
         {
           owner: 'adapter-feishu',
-          wrapper: 'ai_pms.feishu.checkout.project_result',
+          wrapper: 'adapter-feishu.checkout.project_result',
           providerKey: PMS_CHECKOUT_PROVIDER_KEY,
           projection: 'result-card'
         }
       ],
       rejectionCases: [
-        'missing_callback_auth',
+        'missing_platform_callback_auth',
         'pending_consumed_or_stale',
         'provider_or_action_mismatch',
         'dry_run_identity_reused_for_confirm',

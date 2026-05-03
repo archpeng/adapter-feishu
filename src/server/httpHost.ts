@@ -22,10 +22,7 @@ export type AdapterHttpResponse =
 export interface AdapterPmsCheckoutHealth {
   enabled: boolean;
   callbackMode: string;
-  aiPmsCallbackConfigured: boolean;
   platformPendingActionConfigured: boolean;
-  fallbackToAiPmsEnabled: boolean;
-  callbackTokenEnvName: string;
   platformTokenEnvName: string;
   rawCallbackUrlLogged: false;
   rawPlatformBaseUrlLogged: false;

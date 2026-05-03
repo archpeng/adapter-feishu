@@ -14,8 +14,7 @@ import { type DispatchRequest, dispatchWebhookRequest } from './channels/feishu/
 import { readRequestBody, respondJson } from './channels/feishu/webhookSecurity.js';
 import type { AdapterConfig } from './config.js';
 import { createConversationHttpTurnForwarder } from './conversation/forwarder.js';
-import { type InboundTurn, type JsonRecord, type ProviderKey } from './core/contracts.js';
-import { createOperationRequestIntakeForwarder } from './forms/operationRequestIntakeForwarder.js';
+import { type InboundTurn, type JsonRecord } from './core/contracts.js';
 import { loadManagedFormRegistry, type ManagedFormRegistry } from './forms/registry.js';
 import {
   loadPmsBaseProjectionRegistry,
@@ -29,8 +28,6 @@ import {
 import { createProviderRouter, type ProviderRouter } from './providers/router.js';
 import {
   PMS_CHECKOUT_PROVIDER_KEY,
-  createPmsCheckoutHttpCallbackForwarder,
-  createPmsCheckoutHttpInboundTurnForwarder,
   createPmsCheckoutPlatformPendingActionCallbackForwarder,
   createPmsCheckoutProvider
 } from './providers/pms-checkout/index.js';
@@ -131,41 +128,14 @@ export function createAdapterRuntime(
   }
 
   const pmsCheckoutConfig = config.pmsCheckout;
-  const pmsCheckoutAiPmsCallbackForwarder = pmsCheckoutConfig?.callbackUrl && pmsCheckoutConfig.callbackToken
-    ? createPmsCheckoutHttpCallbackForwarder({
-        url: pmsCheckoutConfig.callbackUrl,
-        token: pmsCheckoutConfig.callbackToken,
-        headerName: pmsCheckoutConfig.callbackTokenHeader,
-        timeoutMs: pmsCheckoutConfig.callbackTimeoutMs
-      })
-    : undefined;
-  const pmsCheckoutPendingActionCallbackMode = pmsCheckoutConfig.pendingActionCallbackMode ?? 'ai_pms';
-  const pmsCheckoutCallbackForwarder = pmsCheckoutPendingActionCallbackMode !== 'ai_pms' && pmsCheckoutConfig.pendingActionBaseUrl && pmsCheckoutConfig.pendingActionToken
+  const pmsCheckoutCallbackForwarder = pmsCheckoutConfig.pendingActionBaseUrl && pmsCheckoutConfig.pendingActionToken
     ? createPmsCheckoutPlatformPendingActionCallbackForwarder({
         baseUrl: pmsCheckoutConfig.pendingActionBaseUrl,
         token: pmsCheckoutConfig.pendingActionToken,
-        timeoutMs: pmsCheckoutConfig.pendingActionTimeoutMs ?? pmsCheckoutConfig.callbackTimeoutMs,
-        fallbackForwarder: pmsCheckoutAiPmsCallbackForwarder,
-        mode: pmsCheckoutPendingActionCallbackMode
-      })
-    : pmsCheckoutAiPmsCallbackForwarder;
-  const pmsCheckoutInboundTurnForwarder = pmsCheckoutConfig?.inboundTurnUrl && pmsCheckoutConfig.callbackToken
-    ? createPmsCheckoutHttpInboundTurnForwarder({
-        url: pmsCheckoutConfig.inboundTurnUrl,
-        token: pmsCheckoutConfig.callbackToken,
-        headerName: pmsCheckoutConfig.callbackTokenHeader,
-        timeoutMs: pmsCheckoutConfig.inboundTurnTimeoutMs
+        timeoutMs: pmsCheckoutConfig.pendingActionTimeoutMs ?? pmsCheckoutConfig.callbackTimeoutMs
       })
     : undefined;
   const formConfig = config.form;
-  const operationRequestIntakeForwarder = formConfig.operationRequestIntakeUrl && formConfig.operationRequestIntakeAuthToken
-    ? createOperationRequestIntakeForwarder({
-        url: formConfig.operationRequestIntakeUrl,
-        token: formConfig.operationRequestIntakeAuthToken,
-        headerName: formConfig.operationRequestIntakeAuthHeader,
-        timeoutMs: formConfig.operationRequestIntakeTimeoutMs
-      })
-    : undefined;
   const conversationConfig = config.conversation;
   const conversationTurnForwarder = conversationConfig.turnUrl && conversationConfig.inboundAuthToken
     ? createConversationHttpTurnForwarder({
@@ -228,33 +198,6 @@ export function createAdapterRuntime(
 
     if (logInboundSummary) {
       logSafeInboundSummary('adapter_feishu_inbound_turn_summary', turn, resolution.providerKey);
-    }
-
-    if (turn.intent === 'command' && shouldUsePmsCheckoutDirectRoute(turn, resolution.providerKey, Boolean(conversationTurnForwarder)) && pmsCheckoutInboundTurnForwarder) {
-      const authorization = authorizeAdapterOwnedTurn(turn, pmsCheckoutConfig);
-      if (!authorization.ok) {
-        if (logInboundSummary) {
-          logSafeForwardingDecision('adapter_feishu_inbound_turn_rejected', turn, resolution.providerKey, {
-            reason: authorization.reason,
-            route: 'pms-checkout-direct'
-          });
-        }
-        return;
-      }
-
-      const forwardResult = await pmsCheckoutInboundTurnForwarder.forwardTurn(turn);
-      if (logInboundSummary) {
-        console.log(JSON.stringify({
-          event: 'adapter_feishu_inbound_turn_forwarded',
-          providerKey: resolution.providerKey,
-          route: 'pms-checkout-direct',
-          turnHash: hashRedacted(turn.turnId),
-          statusCode: forwardResult.statusCode,
-          bodyStatus: typeof forwardResult.body.status === 'string' ? forwardResult.body.status : undefined,
-          bodyOk: typeof forwardResult.body.ok === 'boolean' ? forwardResult.body.ok : undefined
-        }));
-      }
-      return;
     }
 
     if (turn.intent === 'command' && conversationTurnForwarder) {
@@ -357,11 +300,8 @@ export function createAdapterRuntime(
         providerKeys: providerRegistry.listProviders().map((entry) => entry.providerKey),
         pmsCheckoutHealth: {
           enabled: config.providers.keys.includes(PMS_CHECKOUT_PROVIDER_KEY),
-          callbackMode: pmsCheckoutPendingActionCallbackMode,
-          aiPmsCallbackConfigured: Boolean(pmsCheckoutConfig.callbackUrl && pmsCheckoutConfig.callbackToken),
+          callbackMode: pmsCheckoutConfig.pendingActionCallbackMode,
           platformPendingActionConfigured: Boolean(pmsCheckoutConfig.pendingActionBaseUrl && pmsCheckoutConfig.pendingActionToken),
-          fallbackToAiPmsEnabled: pmsCheckoutPendingActionCallbackMode !== 'platform' && Boolean(pmsCheckoutConfig.callbackUrl && pmsCheckoutConfig.callbackToken),
-          callbackTokenEnvName: pmsCheckoutConfig.callbackTokenEnvName,
           platformTokenEnvName: pmsCheckoutConfig.pendingActionTokenEnvName ?? 'PMS_PLATFORM_PENDING_ACTION_TOKEN',
           rawCallbackUrlLogged: false,
           rawPlatformBaseUrlLogged: false,
@@ -417,7 +357,6 @@ export function createAdapterRuntime(
             defaultTarget: config.form.defaultTarget,
             allowTargetOverride: config.form.allowTargetOverride,
             formRegistry,
-            operationRequestIntakeForwarder,
             userIdType: config.form.userIdType,
             deduper,
             tableWriteQueue
@@ -516,20 +455,6 @@ interface AdapterOwnedTurnAuthorizationPolicy {
   allowedOpenIds: string[];
   allowedUserIds: string[];
   allowedUnionIds: string[];
-}
-
-function shouldUsePmsCheckoutDirectRoute(
-  turn: InboundTurn,
-  resolvedProviderKey: ProviderKey,
-  conversationForwardingConfigured: boolean
-): boolean {
-  if (resolvedProviderKey !== PMS_CHECKOUT_PROVIDER_KEY) {
-    return false;
-  }
-  if (!conversationForwardingConfigured) {
-    return true;
-  }
-  return turn.providerKey === PMS_CHECKOUT_PROVIDER_KEY;
 }
 
 function authorizeAdapterOwnedTurn(

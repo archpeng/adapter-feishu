@@ -5,9 +5,7 @@ export const PMS_CHECKOUT_CONFIRM_ACTION_ID = 'pms.checkout.confirm';
 export const PMS_CHECKOUT_CONFIRM_CALLBACK_ENVELOPE = 'pms-checkout-confirm-callback-forward.v1';
 export const PMS_CHECKOUT_CONFIRM_CALLBACK_NAME = 'pms-checkout-confirm-callback-forward';
 export const PMS_CHECKOUT_CONFIRM_CALLBACK_VERSION = 'v1';
-export const PMS_CHECKOUT_CONFIRM_CALLBACK_HANDLER = 'ai_pms.pms_checkout.confirm_callback';
-export const PMS_CHECKOUT_CALLBACK_AUTH_HEADER = 'X-AI-PMS-CALLBACK-TOKEN';
-export const PMS_CHECKOUT_CALLBACK_AUTH_ENV_NAME = 'AI_PMS_CALLBACK_TOKEN';
+export const PMS_CHECKOUT_CONFIRM_CALLBACK_HANDLER = 'pms_platform.pending_action.confirm_callback';
 export const PMS_PENDING_ACTION_STATUS_OPERATION = 'pms.pending_action.status';
 export const PMS_PENDING_ACTION_CONFIRM_OPERATION = 'pms.pending_action.confirm';
 export const PMS_PENDING_ACTION_CANCEL_OPERATION = 'pms.pending_action.cancel';
@@ -519,8 +517,8 @@ function validateForwardTo(errors: string[], forwardTo: JsonRecord | undefined, 
     errors.push(`${path} must be an object`);
     return;
   }
-  if (forwardTo.owner !== 'ai-pms') {
-    errors.push(`${path}.owner must be ai-pms`);
+  if (forwardTo.owner !== 'pms-platform') {
+    errors.push(`${path}.owner must be pms-platform`);
   }
   if (forwardTo.handler !== PMS_CHECKOUT_CONFIRM_CALLBACK_HANDLER) {
     errors.push(`${path}.handler must be ${PMS_CHECKOUT_CONFIRM_CALLBACK_HANDLER}`);
@@ -533,11 +531,11 @@ function validateForwardTo(errors: string[], forwardTo: JsonRecord | undefined, 
     errors.push(`${path}.auth must be an object`);
     return;
   }
-  if (auth.headerName !== PMS_CHECKOUT_CALLBACK_AUTH_HEADER) {
-    errors.push(`${path}.auth.headerName must be ${PMS_CHECKOUT_CALLBACK_AUTH_HEADER}`);
+  if (auth.headerName !== 'Authorization') {
+    errors.push(`${path}.auth.headerName must be Authorization`);
   }
-  if (auth.envName !== PMS_CHECKOUT_CALLBACK_AUTH_ENV_NAME) {
-    errors.push(`${path}.auth.envName must be ${PMS_CHECKOUT_CALLBACK_AUTH_ENV_NAME}`);
+  if (auth.envName !== PMS_PENDING_ACTION_CALLBACK_AUTH_ENV_NAME) {
+    errors.push(`${path}.auth.envName must be ${PMS_PENDING_ACTION_CALLBACK_AUTH_ENV_NAME}`);
   }
   if (auth.valueStoredInRepo !== false) {
     errors.push(`${path}.auth.valueStoredInRepo must be false`);
