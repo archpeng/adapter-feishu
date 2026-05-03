@@ -97,9 +97,9 @@ When enabled, provider pushes to `/providers/webhook` must send either:
 - `Authorization: Bearer <shared-token>`
 - `x-adapter-provider-token: <shared-token>`
 
-## PMS checkout provider local mode
+## PMS checkout provider legacy ai-pms local mode
 
-To enable the PMS checkout card/callback provider in the local sandbox profile:
+R8 customer cutover uses `adapter-feishu -> ai-conversation -> pms-platform` for the current PMS chat path. The PMS checkout provider's direct ai-pms Feishu-message/callback wiring below is retained as legacy rollback/migration evidence, not the preferred customer hot path. To enable that legacy local sandbox profile:
 
 ```env
 ADAPTER_FEISHU_PROVIDER_KEYS=warning-agent,pms-checkout
@@ -136,17 +136,13 @@ Expected redacted health shape when enabled:
 }
 ```
 
-The provider persists pending `pms.checkout.confirm` actions before dry-run card delivery, reloads them from `ADAPTER_FEISHU_PENDING_STATE_PATH` after normal process restart, rejects stale/duplicate/action-mismatch callbacks, and forwards accepted callbacks to ai-pms/Hermes with header `X-AI-PMS-CALLBACK-TOKEN` sourced from `AI_PMS_CALLBACK_TOKEN`. The real Feishu callback route is `/webhook/card`; `/providers/card-action` remains for local provider/synthetic compatibility and is not sufficient proof of a real Feishu human click.
+The provider persists pending `pms.checkout.confirm` actions before dry-run card delivery, reloads them from `ADAPTER_FEISHU_PENDING_STATE_PATH` after normal process restart, rejects stale/duplicate/action-mismatch callbacks, and in legacy ai-pms mode forwards accepted callbacks to ai-pms with header `X-AI-PMS-CALLBACK-TOKEN` sourced from `AI_PMS_CALLBACK_TOKEN`. The real Feishu callback route is `/webhook/card`; `/providers/card-action` remains for local provider/synthetic compatibility and is not sufficient proof of a real Feishu human click.
 
 ### PMS platform pending-action callback modes
 
-Default mode remains:
+After R8, when `PMS_PLATFORM_PENDING_ACTION_BASE_URL` and `PMS_PLATFORM_PENDING_ACTION_TOKEN` are both configured and no explicit mode is set, the default callback transport is `platform`. Without those platform credentials, the default remains the legacy `ai_pms` rollback mode.
 
-```env
-ADAPTER_FEISHU_PMS_PENDING_ACTION_CALLBACK_MODE=ai_pms
-```
-
-Use explicit platform modes only for local/canary proof after pms-platform pending-action endpoints are available:
+Use platform modes after pms-platform pending-action endpoints are available:
 
 ```env
 ADAPTER_FEISHU_PMS_PENDING_ACTION_CALLBACK_MODE=platform_shadow
@@ -166,12 +162,12 @@ Fixed platform callback endpoints are:
 - `POST /v1/pms/pending-actions/confirm`
 - `POST /v1/pms/pending-actions/cancel`
 
-R7 canary / rollback ladder:
+R8 cutover / rollback ladder:
 
-1. Keep `ADAPTER_FEISHU_PMS_PENDING_ACTION_CALLBACK_MODE=ai_pms` as the default rollback baseline and verify `/health` reports `fallbackToAiPmsEnabled=true` without raw callback URLs or token values.
-2. For canary only, set `ADAPTER_FEISHU_PMS_PENDING_ACTION_CALLBACK_MODE=platform_shadow` plus platform pending-action env names. `/health` should report `callbackMode=platform_shadow`, `platformPendingActionConfigured=true`, and `fallbackToAiPmsEnabled=true`.
-3. If platform callback forwarding fails in `platform_shadow`, rollback is `ADAPTER_FEISHU_PMS_PENDING_ACTION_CALLBACK_MODE=ai_pms` with the same pending-state file; adapter tests prove pending identity is not consumed until accepted callback forwarding succeeds.
-4. Explicit `platform` mode remains post-canary proof only: `/health` should report `fallbackToAiPmsEnabled=false`, and provider tests must prove there is no hidden ai-pms fallback.
+1. Preferred cutover: configure `PMS_PLATFORM_PENDING_ACTION_BASE_URL` and `PMS_PLATFORM_PENDING_ACTION_TOKEN`; with no explicit mode, `/health` should report `callbackMode=platform`, `platformPendingActionConfigured=true`, and `fallbackToAiPmsEnabled=false`.
+2. Canary/rollback probe: set `ADAPTER_FEISHU_PMS_PENDING_ACTION_CALLBACK_MODE=platform_shadow` plus platform pending-action env names. `/health` should report `callbackMode=platform_shadow`, `platformPendingActionConfigured=true`, and `fallbackToAiPmsEnabled=true`.
+3. Legacy rollback: set `ADAPTER_FEISHU_PMS_PENDING_ACTION_CALLBACK_MODE=ai_pms` and restore `AI_PMS_CALLBACK_TOKEN`/callback URL env names with the same pending-state file; adapter tests prove pending identity is not consumed until accepted callback forwarding succeeds.
+4. Explicit `platform` mode must report `fallbackToAiPmsEnabled=false`, and provider tests must prove there is no hidden ai-pms fallback.
 
 Validation before any default switch:
 
