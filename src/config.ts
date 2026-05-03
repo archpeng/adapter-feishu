@@ -6,6 +6,7 @@ import {
 } from './forms/operationRequestIntakeForwarder.js';
 
 export type IngressMode = 'webhook' | 'long_connection';
+export type PmsPendingActionCallbackMode = 'ai_pms' | 'platform_shadow' | 'platform';
 
 export interface FeishuFormDefaultTargetConfig {
   appToken: string;
@@ -62,6 +63,11 @@ export interface AdapterConfig {
     callbackTokenEnvName: 'AI_PMS_CALLBACK_TOKEN';
     callbackTimeoutMs: number;
     inboundTurnTimeoutMs: number;
+    pendingActionCallbackMode?: PmsPendingActionCallbackMode;
+    pendingActionBaseUrl?: string;
+    pendingActionToken?: string;
+    pendingActionTokenEnvName?: 'PMS_PLATFORM_PENDING_ACTION_TOKEN';
+    pendingActionTimeoutMs?: number;
     allowedChatIds: string[];
     allowedOpenIds: string[];
     allowedUserIds: string[];
@@ -114,6 +120,19 @@ function parseIngressMode(env: Record<string, string | undefined>): IngressMode 
     return raw;
   }
   throw new Error('FEISHU_INGRESS_MODE must be webhook or long_connection');
+}
+
+function parsePmsPendingActionCallbackMode(
+  env: Record<string, string | undefined>
+): PmsPendingActionCallbackMode {
+  const raw = env.ADAPTER_FEISHU_PMS_PENDING_ACTION_CALLBACK_MODE?.trim();
+  if (!raw) {
+    return 'ai_pms';
+  }
+  if (raw === 'ai_pms' || raw === 'platform_shadow' || raw === 'platform') {
+    return raw;
+  }
+  throw new Error('ADAPTER_FEISHU_PMS_PENDING_ACTION_CALLBACK_MODE must be ai_pms, platform_shadow, or platform');
 }
 
 function parseCsv(env: Record<string, string | undefined>, key: string, fallback: string[]): string[] {
@@ -207,7 +226,10 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   const pmsCheckoutCallbackUrl = parseOptionalUrl(env, 'ADAPTER_FEISHU_PMS_CHECKOUT_CALLBACK_URL');
   const pmsCheckoutInboundTurnUrl = parseOptionalUrl(env, 'ADAPTER_FEISHU_PMS_CHECKOUT_INBOUND_TURN_URL');
   const pmsOperationRequestIntakeUrl = parseOptionalUrl(env, 'ADAPTER_FEISHU_PMS_OPERATION_REQUEST_INTAKE_URL');
+  const pmsPendingActionCallbackMode = parsePmsPendingActionCallbackMode(env);
+  const pmsPendingActionBaseUrl = parseOptionalUrl(env, 'PMS_PLATFORM_PENDING_ACTION_BASE_URL');
   const pmsCheckoutCallbackToken = env.AI_PMS_CALLBACK_TOKEN?.trim() || undefined;
+  const pmsPendingActionToken = env.PMS_PLATFORM_PENDING_ACTION_TOKEN?.trim() || undefined;
   const conversationTurnUrl = parseOptionalUrl(env, 'ADAPTER_FEISHU_CONVERSATION_TURN_URL');
   const conversationInboundAuthToken = env.AI_CONVERSATION_INBOUND_AUTH_TOKEN?.trim() || undefined;
   const adapterAllowedChatIds = parseCsv(
@@ -236,6 +258,12 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   if (pmsCheckoutInboundTurnUrl && adapterAllowedChatIds.length === 0) {
     throw new Error(
       'ADAPTER_FEISHU_ALLOWED_CHAT_IDS or FEISHU_HOME_CHANNEL must be set when ADAPTER_FEISHU_PMS_CHECKOUT_INBOUND_TURN_URL is set'
+    );
+  }
+
+  if (pmsPendingActionCallbackMode !== 'ai_pms' && (!pmsPendingActionBaseUrl || !pmsPendingActionToken)) {
+    throw new Error(
+      'PMS_PLATFORM_PENDING_ACTION_BASE_URL and PMS_PLATFORM_PENDING_ACTION_TOKEN must be set when ADAPTER_FEISHU_PMS_PENDING_ACTION_CALLBACK_MODE is platform_shadow or platform'
     );
   }
 
@@ -298,6 +326,11 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       callbackTokenEnvName: 'AI_PMS_CALLBACK_TOKEN',
       callbackTimeoutMs: parsePositiveInteger(env, 'ADAPTER_FEISHU_PMS_CHECKOUT_CALLBACK_TIMEOUT_MS', 5_000),
       inboundTurnTimeoutMs: parsePositiveInteger(env, 'ADAPTER_FEISHU_PMS_CHECKOUT_INBOUND_TURN_TIMEOUT_MS', 5_000),
+      pendingActionCallbackMode: pmsPendingActionCallbackMode,
+      pendingActionBaseUrl: pmsPendingActionBaseUrl,
+      pendingActionToken: pmsPendingActionToken,
+      pendingActionTokenEnvName: 'PMS_PLATFORM_PENDING_ACTION_TOKEN',
+      pendingActionTimeoutMs: parsePositiveInteger(env, 'ADAPTER_FEISHU_PMS_PENDING_ACTION_CALLBACK_TIMEOUT_MS', 5_000),
       allowedChatIds: adapterAllowedChatIds,
       allowedOpenIds: adapterAllowedOpenIds,
       allowedUserIds: adapterAllowedUserIds,

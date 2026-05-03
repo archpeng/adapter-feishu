@@ -56,6 +56,11 @@ describe('loadConfig', () => {
       callbackTokenEnvName: 'AI_PMS_CALLBACK_TOKEN',
       callbackTimeoutMs: 5000,
       inboundTurnTimeoutMs: 5000,
+      pendingActionCallbackMode: 'ai_pms',
+      pendingActionBaseUrl: undefined,
+      pendingActionToken: undefined,
+      pendingActionTokenEnvName: 'PMS_PLATFORM_PENDING_ACTION_TOKEN',
+      pendingActionTimeoutMs: 5000,
       allowedChatIds: [],
       allowedOpenIds: [],
       allowedUserIds: [],
@@ -101,6 +106,10 @@ describe('loadConfig', () => {
       ADAPTER_FEISHU_PMS_CHECKOUT_CALLBACK_TIMEOUT_MS: '2500',
       ADAPTER_FEISHU_PMS_CHECKOUT_INBOUND_TURN_URL: 'http://127.0.0.1:8792/pms/checkout/feishu-message',
       ADAPTER_FEISHU_PMS_CHECKOUT_INBOUND_TURN_TIMEOUT_MS: '3000',
+      ADAPTER_FEISHU_PMS_PENDING_ACTION_CALLBACK_MODE: 'platform_shadow',
+      PMS_PLATFORM_PENDING_ACTION_BASE_URL: 'http://127.0.0.1:8793',
+      PMS_PLATFORM_PENDING_ACTION_TOKEN: 'platform-token-1',
+      ADAPTER_FEISHU_PMS_PENDING_ACTION_CALLBACK_TIMEOUT_MS: '2800',
       ADAPTER_FEISHU_CONVERSATION_TURN_URL: 'http://127.0.0.1:8791/conversation/feishu-turn',
       ADAPTER_FEISHU_CONVERSATION_TURN_TIMEOUT_MS: '3500',
       ADAPTER_FEISHU_ALLOWED_CHAT_IDS: 'oc-chat-1, oc-chat-2',
@@ -151,6 +160,11 @@ describe('loadConfig', () => {
       callbackTokenEnvName: 'AI_PMS_CALLBACK_TOKEN',
       callbackTimeoutMs: 2500,
       inboundTurnTimeoutMs: 3000,
+      pendingActionCallbackMode: 'platform_shadow',
+      pendingActionBaseUrl: 'http://127.0.0.1:8793/',
+      pendingActionToken: 'platform-token-1',
+      pendingActionTokenEnvName: 'PMS_PLATFORM_PENDING_ACTION_TOKEN',
+      pendingActionTimeoutMs: 2800,
       allowedChatIds: ['oc-chat-1', 'oc-chat-2'],
       allowedOpenIds: ['ou-user-1'],
       allowedUserIds: ['user-1'],
@@ -269,6 +283,24 @@ describe('loadConfig', () => {
         ADAPTER_FEISHU_PMS_CHECKOUT_INBOUND_TURN_URL: 'http://127.0.0.1:8792/pms/checkout/feishu-message'
       })
     ).toThrow(/AI_PMS_CALLBACK_TOKEN/);
+  });
+
+  it('rejects invalid platform pending-action callback mode and missing explicit platform credentials', () => {
+    expect(() =>
+      loadConfig({
+        FEISHU_APP_ID: 'cli_test',
+        FEISHU_APP_SECRET: 'secret_test',
+        ADAPTER_FEISHU_PMS_PENDING_ACTION_CALLBACK_MODE: 'direct'
+      })
+    ).toThrow(/ADAPTER_FEISHU_PMS_PENDING_ACTION_CALLBACK_MODE/);
+
+    expect(() =>
+      loadConfig({
+        FEISHU_APP_ID: 'cli_test',
+        FEISHU_APP_SECRET: 'secret_test',
+        ADAPTER_FEISHU_PMS_PENDING_ACTION_CALLBACK_MODE: 'platform'
+      })
+    ).toThrow(/PMS_PLATFORM_PENDING_ACTION_BASE_URL/);
   });
 
   it('rejects invalid PMS checkout forwarding URLs', () => {

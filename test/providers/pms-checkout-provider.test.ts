@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   createPmsCheckoutHttpCallbackForwarder,
+  createPmsCheckoutPlatformPendingActionCallbackForwarder,
   createPmsCheckoutProvider,
   PMS_CHECKOUT_PROVIDER_KEY
 } from '../../src/providers/pms-checkout/index.js';
@@ -52,6 +53,22 @@ function dryRunProjection() {
       }
     }
   };
+}
+
+function dryRunProjectionWithPendingAction() {
+  const projection = dryRunProjection();
+  projection.feishuProjection.payload.confirmAction.pendingAction = {
+    pendingActionRef: 'pa-reservation-draft-1001',
+    cardPayloadRef: 'card-reservation-draft-1001',
+    scope: {
+      propertyId: 'hotel-1',
+      channel: 'typed_card',
+      tenantIdHash: 'sha256:tenant-1',
+      chatIdHash: 'sha256:oc-chat-1',
+      userIdHash: 'sha256:frontdesk-1'
+    }
+  };
+  return projection;
 }
 
 function resultProjection() {
@@ -403,6 +420,318 @@ describe('pms-checkout runtime provider', () => {
         })
       })
     );
+  });
+
+  it('forwards pending-action confirm callbacks to pms-platform when explicit platform mode is configured', async () => {
+    const replySink = {
+      sendNotification: vi.fn().mockResolvedValue({
+        providerKey: PMS_CHECKOUT_PROVIDER_KEY,
+        deliveryId: 'delivery-pms-checkout-dry-run',
+        channel: 'feishu',
+        status: 'delivered'
+      })
+    };
+    const pendingStore = createPendingStore({
+      ttlMs: 10_000,
+      now: () => 1_000,
+      idGenerator: () => 'pending-1001'
+    });
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true, status: 'ok' }), { status: 202 }));
+    const callbackForwarder = createPmsCheckoutPlatformPendingActionCallbackForwarder({
+      baseUrl: 'http://127.0.0.1:8793/',
+      token: 'platform-token-1',
+      fetchImpl
+    });
+    const { router } = createPmsRouter(callbackForwarder);
+
+    await dispatchProviderWebhookRequest(
+      {
+        method: 'POST',
+        pathname: '/providers/webhook',
+        rawBody: JSON.stringify(dryRunProjectionWithPendingAction())
+      },
+      { providerRouter: router, replySink, pendingStore }
+    );
+    const actionPayload = replySink.sendNotification.mock.calls[0][0].actions[0].payload;
+
+    const response = await dispatchCardActionRequest(
+      {
+        method: 'POST',
+        pathname: '/webhook/card',
+        rawBody: JSON.stringify(realFeishuCardActionEnvelope(actionPayload))
+      },
+      {
+        providerRouter: router,
+        pendingStore,
+        replySink,
+        verificationToken: 'feishu-token-1',
+        now: () => '2026-04-26T00:01:00.000Z'
+      }
+    );
+
+    expect(response).toEqual({
+      statusCode: 200,
+      body: {
+        code: 0,
+        providerKey: PMS_CHECKOUT_PROVIDER_KEY,
+        status: 'accepted'
+      }
+    });
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'http://127.0.0.1:8793/v1/pms/pending-actions/confirm',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          'content-type': 'application/json',
+          authorization: 'Bearer platform-token-1'
+        })
+      })
+    );
+    const body = JSON.parse(String(fetchImpl.mock.calls[0][1]?.body));
+    expect(body).toMatchObject({
+      operation: 'pms.pending_action.confirm',
+      pendingActionRef: 'pa-reservation-draft-1001',
+      cardPayloadRef: 'card-reservation-draft-1001',
+      actor: { type: 'human', id: 'frontdesk-1', displayName: 'Front Desk' },
+      scope: {
+        propertyId: 'hotel-1',
+        channel: 'typed_card',
+        tenantIdHash: 'sha256:tenant-1',
+        chatIdHash: 'sha256:oc-chat-1',
+        userIdHash: 'sha256:frontdesk-1'
+      },
+      clientToken: 'idem-pms-checkout-1001-confirm',
+      requestFingerprint: 'sha256:pms-checkout-confirm-1001',
+      correlationId: 'corr-pms-checkout-1001',
+      requestedAt: '2026-04-26T00:01:00.000Z'
+    });
+    expect(pendingStore.get(PMS_CHECKOUT_PROVIDER_KEY, 'pending-1001')).toBeUndefined();
+  });
+
+  it('rejects pending-action scope hash tampering without consuming or forwarding pending state', async () => {
+    const replySink = {
+      sendNotification: vi.fn().mockResolvedValue({
+        providerKey: PMS_CHECKOUT_PROVIDER_KEY,
+        deliveryId: 'delivery-pms-checkout-dry-run',
+        channel: 'feishu',
+        status: 'delivered'
+      })
+    };
+    const pendingStore = createPendingStore({
+      ttlMs: 10_000,
+      now: () => 1_000,
+      idGenerator: () => 'pending-1001'
+    });
+    const callbackForwarder = { forwardCallback: vi.fn().mockResolvedValue({ statusCode: 202, body: { code: 0 } }) };
+    const { router } = createPmsRouter(callbackForwarder);
+
+    await dispatchProviderWebhookRequest(
+      {
+        method: 'POST',
+        pathname: '/providers/webhook',
+        rawBody: JSON.stringify(dryRunProjectionWithPendingAction())
+      },
+      { providerRouter: router, replySink, pendingStore }
+    );
+    const actionPayload = {
+      ...replySink.sendNotification.mock.calls[0][0].actions[0].payload,
+      pendingAction: {
+        ...replySink.sendNotification.mock.calls[0][0].actions[0].payload.pendingAction,
+        scope: {
+          ...replySink.sendNotification.mock.calls[0][0].actions[0].payload.pendingAction.scope,
+          userIdHash: 'sha256:attacker'
+        }
+      }
+    };
+
+    const response = await dispatchCardActionRequest(
+      {
+        method: 'POST',
+        pathname: '/webhook/card',
+        rawBody: JSON.stringify(realFeishuCardActionEnvelope(actionPayload))
+      },
+      { providerRouter: router, pendingStore, replySink, verificationToken: 'feishu-token-1' }
+    );
+
+    expect(response).toEqual({
+      statusCode: 409,
+      body: {
+        code: 409,
+        providerKey: PMS_CHECKOUT_PROVIDER_KEY,
+        message: 'pending_action_mismatch'
+      }
+    });
+    expect(pendingStore.get(PMS_CHECKOUT_PROVIDER_KEY, 'pending-1001')).toBeDefined();
+    expect(callbackForwarder.forwardCallback).not.toHaveBeenCalled();
+  });
+
+  it('falls back to ai-pms and consumes pending state when platform shadow callback is unavailable', async () => {
+    const replySink = {
+      sendNotification: vi.fn().mockResolvedValue({
+        providerKey: PMS_CHECKOUT_PROVIDER_KEY,
+        deliveryId: 'delivery-pms-checkout-dry-run',
+        channel: 'feishu',
+        status: 'delivered'
+      })
+    };
+    const pendingStore = createPendingStore({
+      ttlMs: 10_000,
+      now: () => 1_000,
+      idGenerator: () => 'pending-1001'
+    });
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: false }), { status: 503 }));
+    const fallbackForwarder = { forwardCallback: vi.fn().mockResolvedValue({ statusCode: 202, body: { code: 0 } }) };
+    const callbackForwarder = createPmsCheckoutPlatformPendingActionCallbackForwarder({
+      baseUrl: 'http://127.0.0.1:8793',
+      token: 'platform-token-1',
+      fetchImpl,
+      fallbackForwarder,
+      mode: 'platform_shadow'
+    });
+    const { router } = createPmsRouter(callbackForwarder);
+
+    await dispatchProviderWebhookRequest(
+      {
+        method: 'POST',
+        pathname: '/providers/webhook',
+        rawBody: JSON.stringify(dryRunProjectionWithPendingAction())
+      },
+      { providerRouter: router, replySink, pendingStore }
+    );
+    const actionPayload = replySink.sendNotification.mock.calls[0][0].actions[0].payload;
+
+    const response = await dispatchCardActionRequest(
+      {
+        method: 'POST',
+        pathname: '/webhook/card',
+        rawBody: JSON.stringify(realFeishuCardActionEnvelope(actionPayload))
+      },
+      { providerRouter: router, pendingStore, replySink, verificationToken: 'feishu-token-1' }
+    );
+
+    expect(response).toEqual({
+      statusCode: 200,
+      body: {
+        code: 0,
+        providerKey: PMS_CHECKOUT_PROVIDER_KEY,
+        status: 'accepted'
+      }
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(fallbackForwarder.forwardCallback).toHaveBeenCalledTimes(1);
+    expect(fallbackForwarder.forwardCallback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        envelope: expect.objectContaining({
+          source: 'adapter-feishu',
+          platformPendingAction: expect.objectContaining({ operation: 'pms.pending_action.confirm' }),
+          orchestrator: expect.objectContaining({ pendingId: 'pending-1001' })
+        })
+      })
+    );
+    expect(pendingStore.get(PMS_CHECKOUT_PROVIDER_KEY, 'pending-1001')).toBeUndefined();
+  });
+
+  it('retains pending state when the explicit platform pending-action callback is unavailable', async () => {
+    const replySink = {
+      sendNotification: vi.fn().mockResolvedValue({
+        providerKey: PMS_CHECKOUT_PROVIDER_KEY,
+        deliveryId: 'delivery-pms-checkout-dry-run',
+        channel: 'feishu',
+        status: 'delivered'
+      })
+    };
+    const pendingStore = createPendingStore({
+      ttlMs: 10_000,
+      now: () => 1_000,
+      idGenerator: () => 'pending-1001'
+    });
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: false }), { status: 503 }));
+    const callbackForwarder = createPmsCheckoutPlatformPendingActionCallbackForwarder({
+      baseUrl: 'http://127.0.0.1:8793',
+      token: 'platform-token-1',
+      fetchImpl
+    });
+    const { router } = createPmsRouter(callbackForwarder);
+
+    await dispatchProviderWebhookRequest(
+      {
+        method: 'POST',
+        pathname: '/providers/webhook',
+        rawBody: JSON.stringify(dryRunProjectionWithPendingAction())
+      },
+      { providerRouter: router, replySink, pendingStore }
+    );
+    const actionPayload = replySink.sendNotification.mock.calls[0][0].actions[0].payload;
+
+    const response = await dispatchCardActionRequest(
+      {
+        method: 'POST',
+        pathname: '/webhook/card',
+        rawBody: JSON.stringify(realFeishuCardActionEnvelope(actionPayload))
+      },
+      { providerRouter: router, pendingStore, replySink, verificationToken: 'feishu-token-1' }
+    );
+
+    expect(response).toEqual({
+      statusCode: 502,
+      body: {
+        code: 502,
+        providerKey: PMS_CHECKOUT_PROVIDER_KEY,
+        message: 'callback_forward_failed',
+        error: 'pms_pending_action_callback_forward_failed:503'
+      }
+    });
+    const publicResponse = JSON.stringify(response.body);
+    expect(publicResponse).not.toContain('platform-token-1');
+    expect(publicResponse).not.toContain('http://127.0.0.1:8793');
+    expect(publicResponse).not.toContain('ou-frontdesk-1');
+    expect(publicResponse).not.toContain('pa-reservation-draft-1001');
+    expect(publicResponse).not.toContain('card-reservation-draft-1001');
+    expect(publicResponse).not.toContain('idem-pms-checkout-1001-confirm');
+    expect(publicResponse).not.toContain('corr-pms-checkout-1001');
+    expect(pendingStore.get(PMS_CHECKOUT_PROVIDER_KEY, 'pending-1001')).toBeDefined();
+  });
+
+  it('uses fixed pms-platform pending-action status and cancel endpoints without endpoint templating', async () => {
+    const fetchImpl = vi.fn().mockImplementation(() =>
+      Promise.resolve(new Response(JSON.stringify({ ok: true }), { status: 202 }))
+    );
+    const forwarder = createPmsCheckoutPlatformPendingActionCallbackForwarder({
+      baseUrl: 'http://127.0.0.1:8793/',
+      token: 'platform-token-1',
+      fetchImpl
+    });
+    const baseRequest = {
+      pendingActionRef: 'pa-1001',
+      actor: { type: 'human', id: 'frontdesk-1' },
+      scope: { propertyId: 'hotel-1', channel: 'typed_card' },
+      clientToken: 'client-token-1',
+      requestFingerprint: 'sha256:fingerprint-1',
+      correlationId: 'corr-1',
+      requestedAt: '2026-04-26T00:01:00.000Z'
+    };
+
+    await forwarder.forwardCallback({
+      envelope: {
+        platformPendingAction: {
+          operation: 'pms.pending_action.status',
+          request: baseRequest
+        }
+      }
+    });
+    await forwarder.forwardCallback({
+      envelope: {
+        platformPendingAction: {
+          operation: 'pms.pending_action.cancel',
+          request: { ...baseRequest, reason: 'typed-card-cancelled' }
+        }
+      }
+    });
+
+    expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual([
+      'http://127.0.0.1:8793/v1/pms/pending-actions/status',
+      'http://127.0.0.1:8793/v1/pms/pending-actions/cancel'
+    ]);
   });
 
   it('rejects provider/action mismatches without consuming or forwarding pending state', async () => {

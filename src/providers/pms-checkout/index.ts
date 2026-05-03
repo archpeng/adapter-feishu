@@ -13,6 +13,10 @@ import {
   PMS_CHECKOUT_CONFIRM_CALLBACK_NAME,
   PMS_CHECKOUT_CONFIRM_CALLBACK_VERSION,
   PMS_CHECKOUT_PROVIDER_KEY,
+  PMS_PENDING_ACTION_CALLBACK_AUTH_ENV_NAME,
+  PMS_PENDING_ACTION_CANCEL_OPERATION,
+  PMS_PENDING_ACTION_CONFIRM_OPERATION,
+  PMS_PENDING_ACTION_STATUS_OPERATION,
   hasDistinctDryRunAndConfirmIdentity,
   isPmsCheckoutProjectionEnvelope,
   parsePmsCheckoutConfirmActionValue,
@@ -26,7 +30,9 @@ import {
   type PmsCheckoutConfirmActionValue,
   type PmsCheckoutDryRunCardInput,
   type PmsCheckoutProjectionEnvelope,
-  type PmsCheckoutResultProjection
+  type PmsCheckoutResultProjection,
+  type PmsPendingActionCallbackApiRequest,
+  type PmsPendingActionOperation
 } from './contracts.js';
 
 export interface PmsCheckoutProviderOptions {
@@ -49,6 +55,15 @@ export interface PmsCheckoutInboundTurnForwarderOptions {
   headerName?: typeof PMS_CHECKOUT_CALLBACK_AUTH_HEADER;
   timeoutMs?: number;
   fetchImpl?: typeof fetch;
+}
+
+export interface PmsCheckoutPlatformPendingActionCallbackForwarderOptions {
+  baseUrl: string;
+  token: string;
+  timeoutMs?: number;
+  fetchImpl?: typeof fetch;
+  fallbackForwarder?: ProviderCallbackForwarder;
+  mode?: 'platform' | 'platform_shadow';
 }
 
 export interface PmsCheckoutInboundTurnForwardResult {
@@ -178,6 +193,51 @@ export function createPmsCheckoutHttpCallbackForwarder(
   };
 }
 
+export function createPmsCheckoutPlatformPendingActionCallbackForwarder(
+  options: PmsCheckoutPlatformPendingActionCallbackForwarderOptions
+): ProviderCallbackForwarder {
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const timeoutMs = options.timeoutMs ?? 5_000;
+  const mode = options.mode ?? 'platform';
+
+  return {
+    async forwardCallback(request) {
+      const platformRequest = platformPendingActionRequestFromEnvelope(request.envelope);
+      if (!platformRequest) {
+        if (options.fallbackForwarder) {
+          return options.fallbackForwarder.forwardCallback(request);
+        }
+        throw new Error('pms_pending_action_callback_payload_required');
+      }
+
+      if (mode === 'platform_shadow' && options.fallbackForwarder) {
+        try {
+          await postPlatformPendingActionCallback({
+            baseUrl: options.baseUrl,
+            token: options.token,
+            timeoutMs,
+            fetchImpl,
+            operation: platformRequest.operation,
+            body: platformRequest.request
+          });
+        } catch {
+          // Shadow mode must preserve the existing ai-pms callback path as rollback.
+        }
+        return options.fallbackForwarder.forwardCallback(request);
+      }
+
+      return postPlatformPendingActionCallback({
+        baseUrl: options.baseUrl,
+        token: options.token,
+        timeoutMs,
+        fetchImpl,
+        operation: platformRequest.operation,
+        body: platformRequest.request
+      });
+    }
+  };
+}
+
 export function createPmsCheckoutHttpInboundTurnForwarder(
   options: PmsCheckoutInboundTurnForwarderOptions
 ): PmsCheckoutInboundTurnForwarder {
@@ -256,7 +316,7 @@ async function deliverDryRunCard(
     target,
     bodyMarkdown: [
       '**仅 PMS 预演。**',
-      '点击确认会由 adapter-feishu 向 ai-pms 发送受控回调；adapter-feishu 不拥有 PMS 退房状态。'
+      '点击确认会由 adapter-feishu 向已配置的 PMS 回调通道发送受控回调；adapter-feishu 不拥有 PMS 退房状态。'
     ].join('\n'),
     facts: pmsCheckoutFacts(input),
     actions: [pmsCheckoutConfirmAction(input, pendingRecord.pendingId)],
@@ -374,7 +434,8 @@ function buildPendingPayload(input: PmsCheckoutDryRunCardInput, target: Delivery
     dryRunIdentity: { ...input.dryRunIdentity },
     confirmIdentity: { ...input.confirmIdentity },
     actor: { ...input.actor },
-    projectionTarget: projectionTarget ? { ...projectionTarget } : undefined
+    projectionTarget: projectionTarget ? { ...projectionTarget } : undefined,
+    ...(input.pendingAction ? { pendingAction: { ...input.pendingAction, scope: { ...input.pendingAction.scope } } } : {})
   } as JsonRecord;
 }
 
@@ -398,6 +459,7 @@ function pendingActionMismatch(
 
   const dryRunIdentity = recordField(payload, 'dryRunIdentity');
   const confirmIdentity = recordField(payload, 'confirmIdentity');
+  const pendingAction = recordField(payload, 'pendingAction');
   if (
     !dryRunIdentity ||
     !confirmIdentity ||
@@ -408,6 +470,21 @@ function pendingActionMismatch(
     !hasDistinctDryRunAndConfirmIdentity(action.dryRunIdentity, action.confirmIdentity)
   ) {
     return 'identity_mismatch';
+  }
+
+  if (action.pendingAction && pendingAction) {
+    const scope = recordField(pendingAction, 'scope');
+    if (
+      stringField(pendingAction, 'pendingActionRef') !== action.pendingAction.pendingActionRef ||
+      stringField(pendingAction, 'cardPayloadRef') !== action.pendingAction.cardPayloadRef ||
+      stringField(scope ?? {}, 'propertyId') !== action.pendingAction.scope.propertyId ||
+      stringField(scope ?? {}, 'channel') !== action.pendingAction.scope.channel ||
+      optionalStringField(scope ?? {}, 'tenantIdHash') !== action.pendingAction.scope.tenantIdHash ||
+      optionalStringField(scope ?? {}, 'chatIdHash') !== action.pendingAction.scope.chatIdHash ||
+      optionalStringField(scope ?? {}, 'userIdHash') !== action.pendingAction.scope.userIdHash
+    ) {
+      return 'pending_action_mismatch';
+    }
   }
 
   return null;
@@ -428,6 +505,9 @@ function buildConfirmCallbackForwardEnvelope(input: {
     pmsCheckoutDeliveryTargetToProjectionTarget(input.turn.target);
   const roomNumber = stringField(pendingPayload, 'roomNumber');
   const pendingRef = `provider:${PMS_CHECKOUT_PROVIDER_KEY}/pending:${input.action.pendingId}/action:${PMS_CHECKOUT_CONFIRM_ACTION_ID}`;
+  const platformPendingAction = input.action.pendingAction
+    ? buildPlatformPendingActionCallback(input.action, actor, input.requestedAt)
+    : undefined;
 
   return ({
     contract: {
@@ -453,6 +533,7 @@ function buildConfirmCallbackForwardEnvelope(input: {
       domainEventIds: [],
       rawRefs: []
     },
+    ...(platformPendingAction ? { platformPendingAction } : {}),
     orchestrator: {
       toolName: PMS_CHECKOUT_CONFIRM_CALLBACK_HANDLER,
       interaction: 'confirmCallback',
@@ -516,6 +597,113 @@ function buildConfirmCallbackForwardEnvelope(input: {
       ]
     }
   } as unknown) as JsonRecord;
+}
+
+function buildPlatformPendingActionCallback(
+  action: PmsCheckoutConfirmActionValue,
+  actor: PmsCheckoutActorRef,
+  requestedAt: string
+): JsonRecord {
+  if (!action.pendingAction) {
+    throw new Error('pms_pending_action_ref_required');
+  }
+  const request: PmsPendingActionCallbackApiRequest = {
+    operation: PMS_PENDING_ACTION_CONFIRM_OPERATION,
+    pendingActionRef: action.pendingAction.pendingActionRef,
+    actor,
+    scope: action.pendingAction.scope,
+    clientToken: action.confirmIdentity.idempotencyKey,
+    requestFingerprint: action.confirmIdentity.requestFingerprint,
+    correlationId: action.correlationId,
+    requestedAt,
+    ...(action.pendingAction.cardPayloadRef ? { cardPayloadRef: action.pendingAction.cardPayloadRef } : {})
+  };
+  return ({
+    operation: PMS_PENDING_ACTION_CONFIRM_OPERATION,
+    request,
+    routing: {
+      owner: 'pms-platform',
+      auth: {
+        type: 'bearer-token',
+        envName: PMS_PENDING_ACTION_CALLBACK_AUTH_ENV_NAME,
+        valueStoredInRepo: false
+      },
+      endpoints: {
+        status: '/v1/pms/pending-actions/status',
+        confirm: '/v1/pms/pending-actions/confirm',
+        cancel: '/v1/pms/pending-actions/cancel'
+      }
+    }
+  } as unknown) as JsonRecord;
+}
+
+async function postPlatformPendingActionCallback(input: {
+  readonly baseUrl: string;
+  readonly token: string;
+  readonly timeoutMs: number;
+  readonly fetchImpl: typeof fetch;
+  readonly operation: PmsPendingActionOperation;
+  readonly body: PmsPendingActionCallbackApiRequest;
+}) {
+  const abortController = new AbortController();
+  const timeout = setTimeout(() => abortController.abort(), input.timeoutMs);
+  try {
+    const response = await input.fetchImpl(platformPendingActionUrl(input.baseUrl, input.operation), {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${input.token}`
+      },
+      body: JSON.stringify(input.body),
+      signal: abortController.signal
+    });
+    const body = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(`pms_pending_action_callback_forward_failed:${response.status}`);
+    }
+    return {
+      statusCode: response.status,
+      body
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function platformPendingActionUrl(baseUrl: string, operation: PmsPendingActionOperation): string {
+  const normalizedBaseUrl = baseUrl.replace(/\/$/, '');
+  switch (operation) {
+    case PMS_PENDING_ACTION_STATUS_OPERATION:
+      return `${normalizedBaseUrl}/v1/pms/pending-actions/status`;
+    case PMS_PENDING_ACTION_CONFIRM_OPERATION:
+      return `${normalizedBaseUrl}/v1/pms/pending-actions/confirm`;
+    case PMS_PENDING_ACTION_CANCEL_OPERATION:
+      return `${normalizedBaseUrl}/v1/pms/pending-actions/cancel`;
+  }
+}
+
+function platformPendingActionRequestFromEnvelope(envelope: JsonRecord): {
+  readonly operation: PmsPendingActionOperation;
+  readonly request: PmsPendingActionCallbackApiRequest;
+} | null {
+  const platformPendingAction = recordField(envelope, 'platformPendingAction');
+  const request = recordField(platformPendingAction, 'request');
+  const operation = stringField(platformPendingAction ?? {}, 'operation');
+  if (!request || !isPendingActionOperation(operation)) {
+    return null;
+  }
+  return {
+    operation,
+    request: { ...request, operation } as unknown as PmsPendingActionCallbackApiRequest
+  };
+}
+
+function isPendingActionOperation(value: string | undefined): value is PmsPendingActionOperation {
+  return (
+    value === PMS_PENDING_ACTION_STATUS_OPERATION ||
+    value === PMS_PENDING_ACTION_CONFIRM_OPERATION ||
+    value === PMS_PENDING_ACTION_CANCEL_OPERATION
+  );
 }
 
 async function parseResponseBody(response: Response): Promise<JsonRecord> {
@@ -609,6 +797,11 @@ function actorText(actor: { readonly type: string; readonly id: string; readonly
 function stringField(value: JsonRecord, key: string): string | undefined {
   const candidate = value[key];
   return typeof candidate === 'string' && candidate.trim() ? candidate : undefined;
+}
+
+function optionalStringField(value: JsonRecord, key: string): string | undefined {
+  const candidate = value[key];
+  return typeof candidate === 'string' ? candidate : undefined;
 }
 
 function recordField(value: JsonRecord | undefined, key: string): JsonRecord | undefined {

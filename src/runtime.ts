@@ -31,6 +31,7 @@ import {
   PMS_CHECKOUT_PROVIDER_KEY,
   createPmsCheckoutHttpCallbackForwarder,
   createPmsCheckoutHttpInboundTurnForwarder,
+  createPmsCheckoutPlatformPendingActionCallbackForwarder,
   createPmsCheckoutProvider
 } from './providers/pms-checkout/index.js';
 import {
@@ -130,7 +131,7 @@ export function createAdapterRuntime(
   }
 
   const pmsCheckoutConfig = config.pmsCheckout;
-  const pmsCheckoutCallbackForwarder = pmsCheckoutConfig?.callbackUrl && pmsCheckoutConfig.callbackToken
+  const pmsCheckoutAiPmsCallbackForwarder = pmsCheckoutConfig?.callbackUrl && pmsCheckoutConfig.callbackToken
     ? createPmsCheckoutHttpCallbackForwarder({
         url: pmsCheckoutConfig.callbackUrl,
         token: pmsCheckoutConfig.callbackToken,
@@ -138,6 +139,16 @@ export function createAdapterRuntime(
         timeoutMs: pmsCheckoutConfig.callbackTimeoutMs
       })
     : undefined;
+  const pmsCheckoutPendingActionCallbackMode = pmsCheckoutConfig.pendingActionCallbackMode ?? 'ai_pms';
+  const pmsCheckoutCallbackForwarder = pmsCheckoutPendingActionCallbackMode !== 'ai_pms' && pmsCheckoutConfig.pendingActionBaseUrl && pmsCheckoutConfig.pendingActionToken
+    ? createPmsCheckoutPlatformPendingActionCallbackForwarder({
+        baseUrl: pmsCheckoutConfig.pendingActionBaseUrl,
+        token: pmsCheckoutConfig.pendingActionToken,
+        timeoutMs: pmsCheckoutConfig.pendingActionTimeoutMs ?? pmsCheckoutConfig.callbackTimeoutMs,
+        fallbackForwarder: pmsCheckoutAiPmsCallbackForwarder,
+        mode: pmsCheckoutPendingActionCallbackMode
+      })
+    : pmsCheckoutAiPmsCallbackForwarder;
   const pmsCheckoutInboundTurnForwarder = pmsCheckoutConfig?.inboundTurnUrl && pmsCheckoutConfig.callbackToken
     ? createPmsCheckoutHttpInboundTurnForwarder({
         url: pmsCheckoutConfig.inboundTurnUrl,

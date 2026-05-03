@@ -8,6 +8,43 @@ export const PMS_CHECKOUT_CONFIRM_CALLBACK_VERSION = 'v1';
 export const PMS_CHECKOUT_CONFIRM_CALLBACK_HANDLER = 'ai_pms.pms_checkout.confirm_callback';
 export const PMS_CHECKOUT_CALLBACK_AUTH_HEADER = 'X-AI-PMS-CALLBACK-TOKEN';
 export const PMS_CHECKOUT_CALLBACK_AUTH_ENV_NAME = 'AI_PMS_CALLBACK_TOKEN';
+export const PMS_PENDING_ACTION_STATUS_OPERATION = 'pms.pending_action.status';
+export const PMS_PENDING_ACTION_CONFIRM_OPERATION = 'pms.pending_action.confirm';
+export const PMS_PENDING_ACTION_CANCEL_OPERATION = 'pms.pending_action.cancel';
+export const PMS_PENDING_ACTION_CALLBACK_AUTH_ENV_NAME = 'PMS_PLATFORM_PENDING_ACTION_TOKEN';
+
+export type PmsPendingActionOperation =
+  | typeof PMS_PENDING_ACTION_STATUS_OPERATION
+  | typeof PMS_PENDING_ACTION_CONFIRM_OPERATION
+  | typeof PMS_PENDING_ACTION_CANCEL_OPERATION;
+
+export interface PmsPendingActionScopeRef {
+  readonly propertyId: string;
+  readonly channel: 'typed_card' | 'test';
+  readonly tenantIdHash?: string;
+  readonly chatIdHash?: string;
+  readonly userIdHash?: string;
+}
+
+export interface PmsCheckoutPendingActionRef {
+  readonly pendingActionRef: string;
+  readonly cardPayloadRef?: string;
+  readonly scope: PmsPendingActionScopeRef;
+  readonly reason?: string;
+}
+
+export interface PmsPendingActionCallbackApiRequest {
+  readonly operation?: PmsPendingActionOperation;
+  readonly pendingActionRef: string;
+  readonly actor: PmsCheckoutActorRef;
+  readonly scope: PmsPendingActionScopeRef;
+  readonly clientToken: string;
+  readonly requestFingerprint: string;
+  readonly correlationId: string;
+  readonly requestedAt: string;
+  readonly cardPayloadRef?: string;
+  readonly reason?: string;
+}
 
 export interface PmsCheckoutActorRef {
   readonly type: 'human' | 'ai' | 'system';
@@ -55,6 +92,7 @@ export interface PmsCheckoutDryRunCardInput {
   readonly requestedAt: string;
   readonly target?: DeliveryTarget;
   readonly projectionTarget?: PmsCheckoutProjectionTarget;
+  readonly pendingAction?: PmsCheckoutPendingActionRef;
 }
 
 export type PmsCheckoutResultProjection =
@@ -94,6 +132,7 @@ export interface PmsCheckoutConfirmActionValue {
   readonly dryRunIdentity: PmsCheckoutDryRunIdentity;
   readonly confirmIdentity: PmsCheckoutConfirmIdentity;
   readonly confirmMode: 'confirm';
+  readonly pendingAction?: PmsCheckoutPendingActionRef;
 }
 
 export interface PmsCheckoutConfirmRequestProjection {
@@ -150,7 +189,8 @@ export function pmsCheckoutConfirmAction(input: PmsCheckoutDryRunCardInput, pend
       requestFingerprint: input.confirmIdentity.requestFingerprint,
       dryRunIdentity: identityToRecord(input.dryRunIdentity),
       confirmIdentity: identityToRecord(input.confirmIdentity),
-      confirmMode: 'confirm'
+      confirmMode: 'confirm',
+      ...(input.pendingAction ? { pendingAction: pendingActionToRecord(input.pendingAction) } : {})
     }
   };
 }
@@ -171,6 +211,7 @@ export function parsePmsCheckoutConfirmActionValue(value: JsonRecord): PmsChecko
   const requestFingerprint = stringField(value, 'requestFingerprint');
   const dryRunIdentity = parseDryRunIdentity(recordField(value, 'dryRunIdentity'));
   const confirmIdentity = parseConfirmIdentity(recordField(value, 'confirmIdentity'));
+  const pendingAction = parsePendingActionRef(recordField(value, 'pendingAction'));
 
   if (
     !pendingId ||
@@ -197,7 +238,8 @@ export function parsePmsCheckoutConfirmActionValue(value: JsonRecord): PmsChecko
     requestFingerprint,
     dryRunIdentity,
     confirmIdentity,
-    confirmMode: 'confirm'
+    confirmMode: 'confirm',
+    ...(pendingAction ? { pendingAction } : {})
   };
 }
 
@@ -300,6 +342,7 @@ export function toPmsCheckoutDryRunCardInput(envelope: PmsCheckoutProjectionEnve
   const actor = parseActorRef(recordField(payload, 'actor'));
   const currentStatus = parseStatus(recordField(payload, 'currentStatus'));
   const nextStatus = parseStatus(recordField(payload, 'nextStatus'));
+  const pendingAction = parsePendingActionRef(recordField(confirmAction, 'pendingAction')) ?? parsePendingActionRef(recordField(payload, 'pendingAction'));
 
   if (!dryRunIdentity || !confirmAction || !actor || !currentStatus || !nextStatus) {
     throw new Error('Invalid PMS checkout dry-run projection payload');
@@ -325,7 +368,8 @@ export function toPmsCheckoutDryRunCardInput(envelope: PmsCheckoutProjectionEnve
     },
     requestedAt: stringField(envelope, 'requestedAt') ?? new Date().toISOString(),
     target: pmsCheckoutProjectionTargetToDeliveryTarget(projection.target),
-    projectionTarget: projection.target
+    projectionTarget: projection.target,
+    ...(pendingAction ? { pendingAction } : {})
   };
 }
 
@@ -560,6 +604,40 @@ function parseActorRef(value: JsonRecord | undefined): PmsCheckoutActorRef | nul
   };
 }
 
+function parsePendingActionRef(value: JsonRecord | undefined): PmsCheckoutPendingActionRef | null {
+  if (!value) {
+    return null;
+  }
+  const pendingActionRef = stringField(value, 'pendingActionRef');
+  const scope = parsePendingActionScope(recordField(value, 'scope'));
+  if (!pendingActionRef || !scope) {
+    return null;
+  }
+  return {
+    pendingActionRef,
+    cardPayloadRef: stringField(value, 'cardPayloadRef'),
+    scope,
+    reason: stringField(value, 'reason')
+  };
+}
+
+function parsePendingActionScope(value: JsonRecord | undefined): PmsPendingActionScopeRef | null {
+  if (!value || (value.channel !== 'typed_card' && value.channel !== 'test')) {
+    return null;
+  }
+  const propertyId = stringField(value, 'propertyId');
+  if (!propertyId) {
+    return null;
+  }
+  return {
+    propertyId,
+    channel: value.channel,
+    tenantIdHash: stringField(value, 'tenantIdHash'),
+    chatIdHash: stringField(value, 'chatIdHash'),
+    userIdHash: stringField(value, 'userIdHash')
+  };
+}
+
 function parseStatus(value: JsonRecord | undefined): PmsRoomStatusProjection | null {
   if (!value) {
     return null;
@@ -618,6 +696,15 @@ function actorText(actor: PmsCheckoutActorRef): string {
 
 function identityToRecord(identity: PmsCheckoutDryRunIdentity | PmsCheckoutConfirmIdentity): JsonRecord {
   return { ...identity } as JsonRecord;
+}
+
+function pendingActionToRecord(pendingAction: PmsCheckoutPendingActionRef): JsonRecord {
+  return {
+    pendingActionRef: pendingAction.pendingActionRef,
+    ...(pendingAction.cardPayloadRef ? { cardPayloadRef: pendingAction.cardPayloadRef } : {}),
+    scope: { ...pendingAction.scope },
+    ...(pendingAction.reason ? { reason: pendingAction.reason } : {})
+  } as JsonRecord;
 }
 
 function optionalTopLevelReason(envelope: JsonRecord): string | undefined {
