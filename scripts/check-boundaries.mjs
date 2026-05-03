@@ -26,7 +26,7 @@ const requiredAgentSnippets = [
   'allowlists',
   'dedupe',
   'natural-language chat is forwarded to `ai-conversation`',
-  'typed-card callbacks are forwarded to `ai-pms`',
+  'typed-card callbacks are forwarded to fixed `pms-platform` pending-action endpoints',
   'Base writes remain managed/registry-bound and never PMS truth',
   'does not own Pi Agent runtime or LLM semantic routing',
   'does not own PMS workflow truth',
