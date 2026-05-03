@@ -163,6 +163,26 @@ npm run verify
 
 Logs, health output, test assertions, and incident notes must refer to env names only. Do not record callback tokens, raw platform URLs with credentials, raw Feishu IDs, `pendingActionRef`, `cardPayloadRef`, or idempotency keys in operator-facing summaries.
 
+### PMS Base projection boundary
+
+PMS Base projection wrappers are adapter-owned delivery/projection tools only. Platform readback remains PMS truth.
+
+Adapter projection rules:
+
+- accept only fixed `pms_base_*` operations and registry-bound table targets;
+- reject caller-supplied raw `target`, `appToken`, `tableId`, `recordId`, callback URL, token, authorization, tenant, or secret fields;
+- treat `projectionStatus` rows as delivery metadata (`pending`, `retryable`, `failed`, `pruned`) rather than PMS business truth;
+- redact delivery errors before writing status rows;
+- use platform-provided business keys/refs (`roomNumber`, `clientToken`, `auditId`, task/ticket/reservation/stay/inventory keys) instead of raw Base identifiers.
+
+R6 local proof commands:
+
+```bash
+npm run test -- test/projections/pmsBase.test.ts test/server/pmsBaseProjection.test.ts
+```
+
+These tests prove adapter projection is transport-only/redacted and does not replace platform room, reservation, operation-request, pending-action, audit, or domain-event readback.
+
 ## Real Feishu smoke test
 
 With a real Feishu app configured in `.env` and the adapter running:
