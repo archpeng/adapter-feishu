@@ -355,6 +355,18 @@ export function createAdapterRuntime(
       return dispatchAdapterHttpRequest(request, {
         ingressMode: config.feishu.ingressMode,
         providerKeys: providerRegistry.listProviders().map((entry) => entry.providerKey),
+        pmsCheckoutHealth: {
+          enabled: config.providers.keys.includes(PMS_CHECKOUT_PROVIDER_KEY),
+          callbackMode: pmsCheckoutPendingActionCallbackMode,
+          aiPmsCallbackConfigured: Boolean(pmsCheckoutConfig.callbackUrl && pmsCheckoutConfig.callbackToken),
+          platformPendingActionConfigured: Boolean(pmsCheckoutConfig.pendingActionBaseUrl && pmsCheckoutConfig.pendingActionToken),
+          fallbackToAiPmsEnabled: pmsCheckoutPendingActionCallbackMode !== 'platform' && Boolean(pmsCheckoutConfig.callbackUrl && pmsCheckoutConfig.callbackToken),
+          callbackTokenEnvName: pmsCheckoutConfig.callbackTokenEnvName,
+          platformTokenEnvName: pmsCheckoutConfig.pendingActionTokenEnvName ?? 'PMS_PLATFORM_PENDING_ACTION_TOKEN',
+          rawCallbackUrlLogged: false,
+          rawPlatformBaseUrlLogged: false,
+          rawTokenLogged: false
+        },
         handleFeishuWebhook(requestBody) {
           if (config.feishu.ingressMode !== 'webhook') {
             return Promise.resolve({

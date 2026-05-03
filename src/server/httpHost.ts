@@ -19,9 +19,23 @@ export type AdapterHttpResponse =
   | PmsBaseProjectionResponse
   | CardActionResponse;
 
+export interface AdapterPmsCheckoutHealth {
+  enabled: boolean;
+  callbackMode: string;
+  aiPmsCallbackConfigured: boolean;
+  platformPendingActionConfigured: boolean;
+  fallbackToAiPmsEnabled: boolean;
+  callbackTokenEnvName: string;
+  platformTokenEnvName: string;
+  rawCallbackUrlLogged: false;
+  rawPlatformBaseUrlLogged: false;
+  rawTokenLogged: false;
+}
+
 export interface AdapterHttpDispatchDeps {
   ingressMode: IngressMode;
   providerKeys: string[];
+  pmsCheckoutHealth?: AdapterPmsCheckoutHealth;
   handleFeishuWebhook(request: DispatchRequest): Promise<DispatchResponse>;
   handleProviderWebhook(request: ProviderWebhookRequest): Promise<ProviderWebhookResponse>;
   handleFormWebhook(request: FormWebhookRequest): Promise<FormWebhookResponse>;
@@ -42,7 +56,8 @@ export async function dispatchAdapterHttpRequest(
         code: 0,
         status: 'ok',
         ingressMode: deps.ingressMode,
-        providers: deps.providerKeys
+        providers: deps.providerKeys,
+        ...(deps.pmsCheckoutHealth ? { pmsCheckout: deps.pmsCheckoutHealth } : {})
       }
     };
   }

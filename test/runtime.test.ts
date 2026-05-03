@@ -883,6 +883,11 @@ describe('createAdapterRuntime', () => {
       callbackTokenEnvName: 'AI_PMS_CALLBACK_TOKEN',
       callbackTimeoutMs: 5000,
       inboundTurnTimeoutMs: 5000,
+      pendingActionCallbackMode: 'platform_shadow',
+      pendingActionBaseUrl: 'http://127.0.0.1:8791/',
+      pendingActionToken: 'platform-token-1',
+      pendingActionTokenEnvName: 'PMS_PLATFORM_PENDING_ACTION_TOKEN',
+      pendingActionTimeoutMs: 5000,
       allowedChatIds: [],
       allowedOpenIds: [],
       allowedUserIds: [],
@@ -926,9 +931,24 @@ describe('createAdapterRuntime', () => {
         code: 0,
         status: 'ok',
         ingressMode: 'webhook',
-        providers: ['warning-agent', 'pms-checkout']
+        providers: ['warning-agent', 'pms-checkout'],
+        pmsCheckout: {
+          enabled: true,
+          callbackMode: 'platform_shadow',
+          aiPmsCallbackConfigured: true,
+          platformPendingActionConfigured: true,
+          fallbackToAiPmsEnabled: true,
+          callbackTokenEnvName: 'AI_PMS_CALLBACK_TOKEN',
+          platformTokenEnvName: 'PMS_PLATFORM_PENDING_ACTION_TOKEN',
+          rawCallbackUrlLogged: false,
+          rawPlatformBaseUrlLogged: false,
+          rawTokenLogged: false
+        }
       }
     });
+    expect(JSON.stringify(response)).not.toContain('callback-token-1');
+    expect(JSON.stringify(response)).not.toContain('platform-token-1');
+    expect(JSON.stringify(response)).not.toContain('127.0.0.1');
   });
 
   it('routes managed formKey requests through the runtime with the loaded registry', async () => {

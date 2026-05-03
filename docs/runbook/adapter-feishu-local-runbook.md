@@ -113,14 +113,26 @@ FEISHU_WEBHOOK_VERIFICATION_TOKEN=<local secret, do not commit>
 AI_PMS_CALLBACK_TOKEN=<local secret, do not commit>
 ```
 
-Expected health shape when enabled:
+Expected redacted health shape when enabled:
 
 ```json
 {
   "code": 0,
   "status": "ok",
   "ingressMode": "long_connection",
-  "providers": ["warning-agent", "pms-checkout"]
+  "providers": ["warning-agent", "pms-checkout"],
+  "pmsCheckout": {
+    "enabled": true,
+    "callbackMode": "ai_pms",
+    "aiPmsCallbackConfigured": true,
+    "platformPendingActionConfigured": false,
+    "fallbackToAiPmsEnabled": true,
+    "callbackTokenEnvName": "AI_PMS_CALLBACK_TOKEN",
+    "platformTokenEnvName": "PMS_PLATFORM_PENDING_ACTION_TOKEN",
+    "rawCallbackUrlLogged": false,
+    "rawPlatformBaseUrlLogged": false,
+    "rawTokenLogged": false
+  }
 }
 ```
 
@@ -153,6 +165,13 @@ Fixed platform callback endpoints are:
 - `POST /v1/pms/pending-actions/status`
 - `POST /v1/pms/pending-actions/confirm`
 - `POST /v1/pms/pending-actions/cancel`
+
+R7 canary / rollback ladder:
+
+1. Keep `ADAPTER_FEISHU_PMS_PENDING_ACTION_CALLBACK_MODE=ai_pms` as the default rollback baseline and verify `/health` reports `fallbackToAiPmsEnabled=true` without raw callback URLs or token values.
+2. For canary only, set `ADAPTER_FEISHU_PMS_PENDING_ACTION_CALLBACK_MODE=platform_shadow` plus platform pending-action env names. `/health` should report `callbackMode=platform_shadow`, `platformPendingActionConfigured=true`, and `fallbackToAiPmsEnabled=true`.
+3. If platform callback forwarding fails in `platform_shadow`, rollback is `ADAPTER_FEISHU_PMS_PENDING_ACTION_CALLBACK_MODE=ai_pms` with the same pending-state file; adapter tests prove pending identity is not consumed until accepted callback forwarding succeeds.
+4. Explicit `platform` mode remains post-canary proof only: `/health` should report `fallbackToAiPmsEnabled=false`, and provider tests must prove there is no hidden ai-pms fallback.
 
 Validation before any default switch:
 
