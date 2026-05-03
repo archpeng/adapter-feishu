@@ -127,7 +127,9 @@ function parsePmsPendingActionCallbackMode(
 ): PmsPendingActionCallbackMode {
   const raw = env.ADAPTER_FEISHU_PMS_PENDING_ACTION_CALLBACK_MODE?.trim();
   if (!raw) {
-    return 'ai_pms';
+    return env.PMS_PLATFORM_PENDING_ACTION_BASE_URL?.trim() && env.PMS_PLATFORM_PENDING_ACTION_TOKEN?.trim()
+      ? 'platform'
+      : 'ai_pms';
   }
   if (raw === 'ai_pms' || raw === 'platform_shadow' || raw === 'platform') {
     return raw;

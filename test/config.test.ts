@@ -79,6 +79,21 @@ describe('loadConfig', () => {
     });
   });
 
+  it('defaults pms checkout callbacks to platform transport when platform pending-action credentials are configured', () => {
+    const config = loadConfig({
+      FEISHU_APP_ID: 'cli_test',
+      FEISHU_APP_SECRET: 'secret_test',
+      PMS_PLATFORM_PENDING_ACTION_BASE_URL: 'http://127.0.0.1:8793',
+      PMS_PLATFORM_PENDING_ACTION_TOKEN: 'platform-token-1'
+    });
+
+    expect(config.pmsCheckout.pendingActionCallbackMode).toBe('platform');
+    expect(config.pmsCheckout.pendingActionBaseUrl).toBe('http://127.0.0.1:8793/');
+    expect(config.pmsCheckout.pendingActionToken).toBe('platform-token-1');
+    expect(config.pmsCheckout.callbackUrl).toBeUndefined();
+    expect(config.pmsCheckout.callbackToken).toBeUndefined();
+  });
+
   it('supports long_connection and explicit provider and form webhook registration', () => {
     const config = loadConfig({
       FEISHU_APP_ID: 'cli_test',
