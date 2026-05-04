@@ -212,6 +212,22 @@ export function createAdapterRuntime(
         return;
       }
 
+      const dedupeDecision = deduper.markSeen({
+        providerKey: 'ai-conversation',
+        dedupeKey: conversationTurnDedupeKey(turn)
+      });
+      if (dedupeDecision.isDuplicate) {
+        if (logInboundSummary) {
+          console.log(JSON.stringify({
+            event: 'adapter_feishu_conversation_turn_duplicate_suppressed',
+            providerKey: 'ai-conversation',
+            route: 'conversation',
+            turnHash: hashRedacted(turn.turnId)
+          }));
+        }
+        return;
+      }
+
       try {
         const forwardResult = await conversationTurnForwarder.forwardTurn(turn);
         if (logInboundSummary) {
@@ -485,6 +501,10 @@ function authorizeAdapterOwnedTurn(
   }
 
   return { ok: false, reason: 'actor_not_allowed' };
+}
+
+function conversationTurnDedupeKey(turn: InboundTurn): string {
+  return `conversation-turn:${turn.turnId}`;
 }
 
 async function deliverConversationReplies(input: {

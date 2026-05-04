@@ -535,6 +535,206 @@ describe('createAdapterRuntime', () => {
     }
   });
 
+  it('suppresses duplicate ai-conversation turn forwarding and delivery within the dedupe window', async () => {
+    let markForwardStarted!: () => void;
+    let resolveForward!: (response: Response) => void;
+    const forwardStarted = new Promise<void>((resolve) => {
+      markForwardStarted = resolve;
+    });
+    const responseReady = new Promise<Response>((resolve) => {
+      resolveForward = resolve;
+    });
+    const fetchMock = vi.fn().mockImplementation(() => {
+      markForwardStarted();
+      return responseReady;
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const sendNotification = vi.fn().mockResolvedValue({
+      providerKey: 'ai-conversation',
+      deliveryId: 'delivery-1',
+      channel: 'feishu',
+      status: 'delivered'
+    });
+    let handleTurn: Parameters<AdapterRuntimeDeps['createLongConnectionIngress']>[1] | undefined;
+    const config = createConfig('long_connection');
+    config.providers = {
+      keys: ['warning-agent', 'pms-checkout'],
+      defaultProvider: 'pms-checkout',
+      allowProviderOverride: false,
+      webhookAuthToken: undefined
+    };
+    config.pmsCheckout = {
+      callbackTimeoutMs: 5000,
+      pendingActionCallbackMode: 'platform',
+      pendingActionBaseUrl: 'http://127.0.0.1:8791/',
+      pendingActionToken: 'platform-token-1',
+      pendingActionTokenEnvName: 'PMS_PLATFORM_PENDING_ACTION_TOKEN',
+      pendingActionTimeoutMs: 5000,
+      allowedChatIds: ['fixture-chat-allowed'],
+      allowedOpenIds: ['fixture-user-allowed'],
+      allowedUserIds: [],
+      allowedUnionIds: []
+    };
+    config.conversation = {
+      turnUrl: 'http://127.0.0.1:8791/conversation/feishu-turn',
+      inboundAuthToken: 'conversation-token-1',
+      inboundAuthHeader: 'X-AI-CONVERSATION-TOKEN',
+      inboundAuthEnvName: 'AI_CONVERSATION_INBOUND_AUTH_TOKEN',
+      turnTimeoutMs: 5000,
+      allowedChatIds: ['fixture-chat-allowed'],
+      allowedOpenIds: ['fixture-user-allowed'],
+      allowedUserIds: [],
+      allowedUnionIds: []
+    };
+
+    try {
+      createAdapterRuntime(config, {
+        createClient: () => createFeishuClientStub(),
+        createBitableClient: () => createBitableClientStub(),
+        createReplySink: () => ({ sendNotification }),
+        createHttpServer: () => ({
+          listen: vi.fn().mockResolvedValue(undefined),
+          close: vi.fn().mockResolvedValue(undefined)
+        }),
+        createLongConnectionIngress: (_config, nextHandleTurn) => {
+          handleTurn = nextHandleTurn;
+          return {
+            start: vi.fn().mockResolvedValue(undefined),
+            stop: vi.fn().mockResolvedValue(undefined)
+          };
+        }
+      });
+
+      const turn = {
+        turnId: 'msg-conversation-dedupe-1',
+        channel: 'feishu' as const,
+        intent: 'command' as const,
+        receivedAt: '2026-04-27T00:00:00.000Z',
+        actor: { openId: 'fixture-user-allowed' },
+        target: { channel: 'feishu' as const, chatId: 'fixture-chat-allowed', messageId: 'msg-conversation-dedupe-1' },
+        text: '要定房间',
+        rawEvent: {},
+        metadata: { eventType: 'im.message.receive_v1' }
+      };
+      const first = handleTurn?.(turn, { source: 'long_connection', rawEvent: {} });
+      await forwardStarted;
+      await handleTurn?.(turn, { source: 'long_connection', rawEvent: {} });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(sendNotification).not.toHaveBeenCalled();
+
+      resolveForward(new Response(JSON.stringify({
+        ok: true,
+        status: 'handled',
+        intent: 'conversation.generic',
+        replies: [{ type: 'text', text: '收到。我可以继续帮你处理。' }]
+      }), { status: 202 }));
+      await first;
+      await handleTurn?.(turn, { source: 'long_connection', rawEvent: {} });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(sendNotification).toHaveBeenCalledTimes(1);
+      expect(sendNotification).toHaveBeenCalledWith(expect.objectContaining({
+        providerKey: 'ai-conversation',
+        title: 'PMS智能助手',
+        summary: '收到。我可以继续帮你处理。',
+        target: { channel: 'feishu', chatId: 'fixture-chat-allowed', messageId: 'msg-conversation-dedupe-1' }
+      }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('delivers ai-conversation safe replies even when the forward response is non-2xx', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      ok: false,
+      status: 'blocked',
+      intent: 'pms.reservation.workflow',
+      replies: [{ type: 'text', text: '已收到 PMS 工具证据，但最终回复生成未通过安全校验；请稍后重试。' }]
+    }), { status: 400 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const sendNotification = vi.fn().mockResolvedValue({
+      providerKey: 'ai-conversation',
+      deliveryId: 'delivery-1',
+      channel: 'feishu',
+      status: 'delivered'
+    });
+    let handleTurn: Parameters<AdapterRuntimeDeps['createLongConnectionIngress']>[1] | undefined;
+    const config = createConfig('long_connection');
+    config.providers = {
+      keys: ['warning-agent', 'pms-checkout'],
+      defaultProvider: 'pms-checkout',
+      allowProviderOverride: false,
+      webhookAuthToken: undefined
+    };
+    config.pmsCheckout = {
+      callbackTimeoutMs: 5000,
+      pendingActionCallbackMode: 'platform',
+      pendingActionBaseUrl: 'http://127.0.0.1:8791/',
+      pendingActionToken: 'platform-token-1',
+      pendingActionTokenEnvName: 'PMS_PLATFORM_PENDING_ACTION_TOKEN',
+      pendingActionTimeoutMs: 5000,
+      allowedChatIds: ['fixture-chat-allowed'],
+      allowedOpenIds: ['fixture-user-allowed'],
+      allowedUserIds: [],
+      allowedUnionIds: []
+    };
+    config.conversation = {
+      turnUrl: 'http://127.0.0.1:8791/conversation/feishu-turn',
+      inboundAuthToken: 'conversation-token-1',
+      inboundAuthHeader: 'X-AI-CONVERSATION-TOKEN',
+      inboundAuthEnvName: 'AI_CONVERSATION_INBOUND_AUTH_TOKEN',
+      turnTimeoutMs: 5000,
+      allowedChatIds: ['fixture-chat-allowed'],
+      allowedOpenIds: ['fixture-user-allowed'],
+      allowedUserIds: [],
+      allowedUnionIds: []
+    };
+
+    try {
+      createAdapterRuntime(config, {
+        createClient: () => createFeishuClientStub(),
+        createBitableClient: () => createBitableClientStub(),
+        createReplySink: () => ({ sendNotification }),
+        createHttpServer: () => ({
+          listen: vi.fn().mockResolvedValue(undefined),
+          close: vi.fn().mockResolvedValue(undefined)
+        }),
+        createLongConnectionIngress: (_config, nextHandleTurn) => {
+          handleTurn = nextHandleTurn;
+          return {
+            start: vi.fn().mockResolvedValue(undefined),
+            stop: vi.fn().mockResolvedValue(undefined)
+          };
+        }
+      });
+
+      await handleTurn?.({
+        turnId: 'msg-conversation-blocked-reply',
+        channel: 'feishu',
+        intent: 'command',
+        receivedAt: '2026-04-27T00:00:00.000Z',
+        actor: { openId: 'fixture-user-allowed' },
+        target: { channel: 'feishu', chatId: 'fixture-chat-allowed', messageId: 'msg-conversation-blocked-reply' },
+        text: '要订房 大后天',
+        rawEvent: {},
+        metadata: { eventType: 'im.message.receive_v1' }
+      }, {
+        source: 'long_connection',
+        rawEvent: {}
+      });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(sendNotification).toHaveBeenCalledWith(expect.objectContaining({
+        providerKey: 'ai-conversation',
+        title: 'PMS智能助手',
+        summary: '已收到 PMS 工具证据，但最终回复生成未通过安全校验；请稍后重试。',
+        target: { channel: 'feishu', chatId: 'fixture-chat-allowed', messageId: 'msg-conversation-blocked-reply' }
+      }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('routes deterministic PMS checkout natural-language turns through ai-conversation when configured', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true, status: 'handled', intent: 'pms.checkout.start_dry_run' }), { status: 202 }));
     vi.stubGlobal('fetch', fetchMock);

@@ -45,7 +45,7 @@ export function createConversationHttpTurnForwarder(
           signal: abortController.signal
         });
         const body = await parseResponseBody(response);
-        if (!response.ok) {
+        if (!response.ok && !hasDeliverableReplies(body)) {
           throw new Error(`conversation_turn_forward_failed:${response.status}`);
         }
         return {
@@ -70,6 +70,11 @@ async function parseResponseBody(response: Response): Promise<JsonRecord> {
   } catch {
     return { raw: text };
   }
+}
+
+function hasDeliverableReplies(body: JsonRecord): boolean {
+  const replies = Array.isArray(body.replies) ? body.replies : [];
+  return replies.some((reply) => isRecord(reply) && typeof reply.text === 'string' && reply.text.trim().length > 0);
 }
 
 function isRecord(value: unknown): value is JsonRecord {
