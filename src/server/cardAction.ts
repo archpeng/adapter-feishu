@@ -1,8 +1,12 @@
 import type { IncomingHttpHeaders } from 'node:http';
 import type { DeliveryTarget, InboundTurn, JsonRecord } from '../core/contracts.js';
-import type { ProviderCallbackForwarder, ProviderNotificationSink } from '../providers/contracts.js';
+import {
+  handleConversationReservationCardAction,
+  isConversationReservationCardAction,
+} from '../conversation/reservationCardDelivery.js';
+import type { ProviderCallbackForwarder, ProviderExecutionResult, ProviderNotificationSink } from '../providers/contracts.js';
 import type { ProviderRouter } from '../providers/router.js';
-import type { PendingStore } from '../state/pendingStore.js';
+import type { PendingActionRecord, PendingStore } from '../state/pendingStore.js';
 
 const CARD_ACTION_PATHS = new Set(['/card-action', '/providers/card-action', '/webhook/card']);
 
@@ -82,20 +86,19 @@ export async function dispatchCardActionRequest(
     return { statusCode: 409, body: { code: 409, message: 'action_mismatch' } };
   }
 
-  const resolution = deps.providerRouter.resolve({ providerKey });
-  const provider = resolution.provider.definition;
-  if (!provider.handleCallback) {
-    return { statusCode: 501, body: { code: 501, message: 'callback_not_supported' } };
-  }
-
   const callbackTurn = buildCallbackTurn(payload, actionValue, pendingRecord.target, deps.now, providerKey);
-  const result = await provider.handleCallback(callbackTurn, {
-    replySink: deps.replySink,
-    defaultTarget: pendingRecord.target ?? deps.defaultTarget,
-    now: deps.now,
-    pendingStore: deps.pendingStore,
-    callbackForwarder: deps.callbackForwarder
-  }).catch((error: unknown) => ({ error }));
+  const result = isConversationReservationCardAction(providerKey, actionId)
+    ? await handleConversationReservationCardAction({
+        turn: callbackTurn,
+        pendingRecord,
+        callbackForwarder: deps.callbackForwarder
+      }).catch((error: unknown) => ({ error }))
+    : await dispatchProviderCallback({
+        providerKey,
+        callbackTurn,
+        pendingRecord,
+        deps
+      });
 
   if ('error' in result) {
     return {
@@ -130,6 +133,30 @@ export async function dispatchCardActionRequest(
       status: result.status
     }
   };
+}
+
+async function dispatchProviderCallback(input: {
+  providerKey: string;
+  callbackTurn: InboundTurn;
+  pendingRecord: PendingActionRecord;
+  deps: CardActionDispatchDeps;
+}): Promise<ProviderExecutionResult | { error: unknown }> {
+  const resolution = input.deps.providerRouter.resolve({ providerKey: input.providerKey });
+  const provider = resolution.provider.definition;
+  if (!provider.handleCallback) {
+    return {
+      providerKey: input.providerKey,
+      status: 'failed',
+      message: 'callback_not_supported'
+    };
+  }
+  return provider.handleCallback(input.callbackTurn, {
+    replySink: input.deps.replySink,
+    defaultTarget: input.pendingRecord.target ?? input.deps.defaultTarget,
+    now: input.deps.now,
+    pendingStore: input.deps.pendingStore,
+    callbackForwarder: input.deps.callbackForwarder
+  }).catch((error: unknown) => ({ error }));
 }
 
 function buildCallbackTurn(

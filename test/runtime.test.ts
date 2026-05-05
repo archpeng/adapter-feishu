@@ -5,7 +5,56 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import { createAdapterRuntime, type AdapterRuntimeDeps } from '../src/runtime.js';
 import type { AdapterConfig } from '../src/config.js';
+import {
+  AI_CONVERSATION_RESERVATION_CARD_ACTION_ID,
+  AI_CONVERSATION_RESERVATION_CARD_PROVIDER_KEY,
+  conversationReservationCardReplies,
+} from '../src/conversation/reservationCardDelivery.js';
+import type { JsonRecord } from '../src/core/contracts.js';
 import type { AdapterHttpRequest, AdapterHttpResponse } from '../src/server/httpHost.js';
+
+function reservationCardReply(overrides: JsonRecord = {}): JsonRecord {
+  return {
+    type: 'reservation_confirmation_card',
+    text: '预订确认卡片已准备好；这还不是最终预订，真正确认仍需点击飞书卡片按钮。',
+    contract: 'ai-conversation.reservation-confirmation-card.v1',
+    operation: 'pms.reservation.prepare_confirm',
+    card: {
+      title: '预订确认',
+      summary: 'PMS 已生成待确认的预订草稿；请人工核对后点击卡片按钮。',
+      bodyMarkdown: '**这不是最终预订确认。**\n点击卡片按钮后才会转交 PMS pending-action 确认。',
+      facts: [{ label: '入住日期', value: '2026-05-07' }]
+    },
+    pendingAction: {
+      pendingActionRef: 'pending-reservation-raw-runtime',
+      cardPayloadRef: 'card-reservation-raw-runtime',
+      quoteRef: 'quote-reservation-raw-runtime',
+      propertyId: 'default',
+      status: 'awaitingConfirmation',
+      confirmationMode: 'typedCardOnly',
+      mutationStatus: 'none'
+    },
+    callback: {
+      owner: 'adapter-feishu',
+      targetOwner: 'pms-platform',
+      confirmOperation: 'pms.pending_action.confirm',
+      cancelOperation: 'pms.pending_action.cancel',
+      correlationId: 'corr-reservation-runtime',
+      naturalLanguageConfirmAllowed: false
+    },
+    safety: {
+      customerTextContainsRawRefs: false,
+      durableAiConversationMemoryAllowed: false,
+      rawRefsConfinedToAdapterCallbackBoundary: true
+    },
+    ownerBoundaries: {
+      cardPayload: 'pms-platform produces cardPayloadRef; adapter-feishu renders Feishu card from this delivery envelope.',
+      pendingAction: 'pms-platform owns pendingActionRef, expiry, idempotency, and pending-action state.',
+      callback: 'adapter-feishu owns card click ingress and forwards only fixed pending-action callbacks to pms-platform.'
+    },
+    ...overrides
+  };
+}
 
 function createConfig(
   ingressMode: AdapterConfig['feishu']['ingressMode'],
@@ -530,6 +579,271 @@ describe('createAdapterRuntime', () => {
         summary: '收到。我可以查询 PMS 房态或发起预演。',
         target: { channel: 'feishu', chatId: 'fixture-chat-allowed', messageId: 'msg-conversation-1' }
       }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('delivers ai-conversation reservation confirmation cards through adapter-owned pending state', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      ok: true,
+      status: 'handled',
+      intent: 'pms.reservation.workflow',
+      replies: [
+        { type: 'text', text: '预订确认卡片已准备好；这还不是最终预订，真正确认仍需点击飞书卡片按钮。' },
+        {
+          type: 'reservation_confirmation_card',
+          text: '预订确认卡片已准备好；这还不是最终预订，真正确认仍需点击飞书卡片按钮。',
+          contract: 'ai-conversation.reservation-confirmation-card.v1',
+          operation: 'pms.reservation.prepare_confirm',
+          card: {
+            title: '预订确认',
+            summary: 'PMS 已生成待确认的预订草稿；请人工核对后点击卡片按钮。',
+            bodyMarkdown: '**这不是最终预订确认。**\n点击卡片按钮后才会转交 PMS pending-action 确认。',
+            facts: [{ label: '入住日期', value: '2026-05-07' }]
+          },
+          pendingAction: {
+            pendingActionRef: 'pending-reservation-raw-runtime',
+            cardPayloadRef: 'card-reservation-raw-runtime',
+            quoteRef: 'quote-reservation-raw-runtime',
+            propertyId: 'default',
+            status: 'awaitingConfirmation',
+            confirmationMode: 'typedCardOnly',
+            mutationStatus: 'none'
+          },
+          callback: {
+            owner: 'adapter-feishu',
+            targetOwner: 'pms-platform',
+            confirmOperation: 'pms.pending_action.confirm',
+            cancelOperation: 'pms.pending_action.cancel',
+            correlationId: 'corr-reservation-runtime',
+            naturalLanguageConfirmAllowed: false
+          },
+          safety: {
+            customerTextContainsRawRefs: false,
+            durableAiConversationMemoryAllowed: false,
+            rawRefsConfinedToAdapterCallbackBoundary: true
+          },
+          ownerBoundaries: {
+            cardPayload: 'pms-platform produces cardPayloadRef; adapter-feishu renders Feishu card from this delivery envelope.',
+            pendingAction: 'pms-platform owns pendingActionRef, expiry, idempotency, and pending-action state.',
+            callback: 'adapter-feishu owns card click ingress and forwards only fixed pending-action callbacks to pms-platform.'
+          }
+        }
+      ]
+    }), { status: 202 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const sendNotification = vi.fn().mockResolvedValue({
+      providerKey: 'ai-conversation',
+      deliveryId: 'delivery-1',
+      channel: 'feishu',
+      status: 'delivered'
+    });
+    let handleTurn: Parameters<AdapterRuntimeDeps['createLongConnectionIngress']>[1] | undefined;
+    const config = createConfig('long_connection');
+    config.providers = {
+      keys: ['warning-agent', 'pms-checkout'],
+      defaultProvider: 'pms-checkout',
+      allowProviderOverride: false,
+      webhookAuthToken: undefined
+    };
+    config.conversation = {
+      turnUrl: 'http://127.0.0.1:8791/conversation/feishu-turn',
+      inboundAuthToken: 'conversation-token-1',
+      inboundAuthHeader: 'X-AI-CONVERSATION-TOKEN',
+      inboundAuthEnvName: 'AI_CONVERSATION_INBOUND_AUTH_TOKEN',
+      turnTimeoutMs: 5000,
+      allowedChatIds: ['fixture-chat-allowed'],
+      allowedOpenIds: ['fixture-user-allowed'],
+      allowedUserIds: [],
+      allowedUnionIds: []
+    };
+
+    try {
+      const runtime = createAdapterRuntime(config, {
+        createClient: () => createFeishuClientStub(),
+        createBitableClient: () => createBitableClientStub(),
+        createReplySink: () => ({ sendNotification }),
+        createHttpServer: () => ({
+          listen: vi.fn().mockResolvedValue(undefined),
+          close: vi.fn().mockResolvedValue(undefined)
+        }),
+        createLongConnectionIngress: (_config, nextHandleTurn) => {
+          handleTurn = nextHandleTurn;
+          return {
+            start: vi.fn().mockResolvedValue(undefined),
+            stop: vi.fn().mockResolvedValue(undefined)
+          };
+        }
+      });
+
+      await handleTurn?.({
+        turnId: 'msg-conversation-reservation-card',
+        channel: 'feishu',
+        intent: 'command',
+        receivedAt: '2026-05-05T00:00:00.000Z',
+        actor: { openId: 'fixture-user-allowed' },
+        target: { channel: 'feishu', chatId: 'fixture-chat-allowed', messageId: 'msg-conversation-reservation-card' },
+        text: '给我飞书卡片',
+        rawEvent: {},
+        metadata: { eventType: 'im.message.receive_v1' }
+      }, { source: 'long_connection', rawEvent: {} });
+
+      expect(sendNotification).toHaveBeenCalledTimes(2);
+      expect(sendNotification).toHaveBeenNthCalledWith(1, expect.objectContaining({
+        providerKey: 'ai-conversation',
+        summary: '预订确认卡片已准备好；这还不是最终预订，真正确认仍需点击飞书卡片按钮。'
+      }));
+      const cardNotification = sendNotification.mock.calls[1][0];
+      expect(cardNotification).toEqual(expect.objectContaining({
+        providerKey: AI_CONVERSATION_RESERVATION_CARD_PROVIDER_KEY,
+        title: '预订确认',
+        target: { channel: 'feishu', chatId: 'fixture-chat-allowed', messageId: 'msg-conversation-reservation-card' },
+        metadata: expect.objectContaining({
+          callbackOwner: 'adapter-feishu',
+          targetOwner: 'pms-platform',
+          naturalLanguageConfirmAllowed: false
+        })
+      }));
+      expect(cardNotification.actions).toEqual([
+        expect.objectContaining({
+          actionId: AI_CONVERSATION_RESERVATION_CARD_ACTION_ID,
+          label: '确认预订',
+          payload: expect.objectContaining({ operation: 'pms.pending_action.confirm' })
+        }),
+        expect.objectContaining({
+          actionId: AI_CONVERSATION_RESERVATION_CARD_ACTION_ID,
+          label: '取消',
+          payload: expect.objectContaining({ operation: 'pms.pending_action.cancel' })
+        })
+      ]);
+      expect(JSON.stringify(cardNotification)).not.toContain('pending-reservation-raw-runtime');
+      expect(JSON.stringify(cardNotification)).not.toContain('card-reservation-raw-runtime');
+      const pending = runtime.pendingStore.list(AI_CONVERSATION_RESERVATION_CARD_PROVIDER_KEY)[0];
+      expect(pending).toEqual(expect.objectContaining({
+        providerKey: AI_CONVERSATION_RESERVATION_CARD_PROVIDER_KEY,
+        actionId: AI_CONVERSATION_RESERVATION_CARD_ACTION_ID,
+        payload: expect.objectContaining({
+          callbackOwner: 'adapter-feishu',
+          targetOwner: 'pms-platform',
+          naturalLanguageConfirmAllowed: false,
+          pendingAction: expect.objectContaining({
+            pendingActionRef: 'pending-reservation-raw-runtime',
+            cardPayloadRef: 'card-reservation-raw-runtime',
+            quoteRef: 'quote-reservation-raw-runtime'
+          })
+        })
+      }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('accepts only the fixed reservation card delivery boundary', () => {
+    expect(conversationReservationCardReplies({ replies: [reservationCardReply()] })).toHaveLength(1);
+    expect(conversationReservationCardReplies({
+      replies: [reservationCardReply({
+        callback: {
+          owner: 'ai-conversation',
+          targetOwner: 'pms-platform',
+          confirmOperation: 'pms.pending_action.confirm',
+          cancelOperation: 'pms.pending_action.cancel',
+          correlationId: 'corr-reservation-runtime',
+          naturalLanguageConfirmAllowed: true
+        }
+      })]
+    })).toEqual([]);
+    expect(conversationReservationCardReplies({
+      replies: [reservationCardReply({
+        pendingAction: {
+          pendingActionRef: 'pending-reservation-raw-runtime',
+          cardPayloadRef: 'card-reservation-raw-runtime',
+          quoteRef: 'quote-reservation-raw-runtime',
+          propertyId: 'default',
+          status: 'confirmed',
+          confirmationMode: 'typedCardOnly',
+          mutationStatus: 'deferred'
+        }
+      })]
+    })).toEqual([]);
+  });
+
+  it('sends an honest reservation card capability gap when callback forwarding is unavailable', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      ok: true,
+      status: 'handled',
+      intent: 'pms.reservation.workflow',
+      replies: [
+        { type: 'text', text: '预订确认卡片已准备好；这还不是最终预订，真正确认仍需点击飞书卡片按钮。' },
+        reservationCardReply()
+      ]
+    }), { status: 202 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const sendNotification = vi.fn().mockResolvedValue({
+      providerKey: 'ai-conversation',
+      deliveryId: 'delivery-1',
+      channel: 'feishu',
+      status: 'delivered'
+    });
+    let handleTurn: Parameters<AdapterRuntimeDeps['createLongConnectionIngress']>[1] | undefined;
+    const config = createConfig('long_connection');
+    config.pmsCheckout = {
+      ...config.pmsCheckout,
+      pendingActionBaseUrl: undefined,
+      pendingActionToken: undefined
+    };
+    config.conversation = {
+      turnUrl: 'http://127.0.0.1:8791/conversation/feishu-turn',
+      inboundAuthToken: 'conversation-token-1',
+      inboundAuthHeader: 'X-AI-CONVERSATION-TOKEN',
+      inboundAuthEnvName: 'AI_CONVERSATION_INBOUND_AUTH_TOKEN',
+      turnTimeoutMs: 5000,
+      allowedChatIds: ['fixture-chat-allowed'],
+      allowedOpenIds: ['fixture-user-allowed'],
+      allowedUserIds: [],
+      allowedUnionIds: []
+    };
+
+    try {
+      const runtime = createAdapterRuntime(config, {
+        createClient: () => createFeishuClientStub(),
+        createBitableClient: () => createBitableClientStub(),
+        createReplySink: () => ({ sendNotification }),
+        createHttpServer: () => ({
+          listen: vi.fn().mockResolvedValue(undefined),
+          close: vi.fn().mockResolvedValue(undefined)
+        }),
+        createLongConnectionIngress: (_config, nextHandleTurn) => {
+          handleTurn = nextHandleTurn;
+          return {
+            start: vi.fn().mockResolvedValue(undefined),
+            stop: vi.fn().mockResolvedValue(undefined)
+          };
+        }
+      });
+
+      await handleTurn?.({
+        turnId: 'msg-conversation-reservation-card-gap',
+        channel: 'feishu',
+        intent: 'command',
+        receivedAt: '2026-05-05T00:00:00.000Z',
+        actor: { openId: 'fixture-user-allowed' },
+        target: { channel: 'feishu', chatId: 'fixture-chat-allowed', messageId: 'msg-conversation-reservation-card-gap' },
+        text: '给我飞书卡片',
+        rawEvent: {},
+        metadata: { eventType: 'im.message.receive_v1' }
+      }, { source: 'long_connection', rawEvent: {} });
+
+      expect(sendNotification).toHaveBeenCalledTimes(2);
+      const gapNotification = sendNotification.mock.calls[1][0];
+      expect(gapNotification).toEqual(expect.objectContaining({
+        providerKey: 'ai-conversation',
+        summary: expect.stringContaining('未配置 pending-action 回调'),
+        rawPayload: expect.objectContaining({ delivery: 'capability_gap', rawRefsLogged: false })
+      }));
+      expect(JSON.stringify(gapNotification)).not.toContain('pending-reservation-raw-runtime');
+      expect(JSON.stringify(gapNotification)).not.toContain('card-reservation-raw-runtime');
+      expect(runtime.pendingStore.list(AI_CONVERSATION_RESERVATION_CARD_PROVIDER_KEY)).toEqual([]);
     } finally {
       vi.unstubAllGlobals();
     }

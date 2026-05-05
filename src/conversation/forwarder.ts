@@ -1,4 +1,5 @@
 import type { InboundTurn, JsonRecord } from '../core/contracts.js';
+import { hasConversationReservationCardReply } from './reservationCardDelivery.js';
 
 export const AI_CONVERSATION_AUTH_HEADER = 'X-AI-CONVERSATION-TOKEN';
 export const AI_CONVERSATION_AUTH_ENV_NAME = 'AI_CONVERSATION_INBOUND_AUTH_TOKEN';
@@ -74,7 +75,8 @@ async function parseResponseBody(response: Response): Promise<JsonRecord> {
 
 function hasDeliverableReplies(body: JsonRecord): boolean {
   const replies = Array.isArray(body.replies) ? body.replies : [];
-  return replies.some((reply) => isRecord(reply) && typeof reply.text === 'string' && reply.text.trim().length > 0);
+  return replies.some((reply) => isRecord(reply) && reply.type === 'text' && typeof reply.text === 'string' && reply.text.trim().length > 0)
+    || hasConversationReservationCardReply(body);
 }
 
 function isRecord(value: unknown): value is JsonRecord {

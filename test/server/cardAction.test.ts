@@ -5,6 +5,11 @@ import { createProviderRegistry, registerProvider } from '../../src/providers/re
 import { createProviderRouter } from '../../src/providers/router.js';
 import { createPendingStore } from '../../src/state/pendingStore.js';
 import { dispatchCardActionRequest } from '../../src/server/cardAction.js';
+import {
+  AI_CONVERSATION_RESERVATION_CARD_ACTION_ID,
+  AI_CONVERSATION_RESERVATION_CARD_PROVIDER_KEY,
+  PMS_PENDING_ACTION_CONFIRM_OPERATION,
+} from '../../src/conversation/reservationCardDelivery.js';
 
 function createCallbackProvider(handleCallback: ReturnType<typeof vi.fn>): ProviderDefinition<JsonRecord, ProviderAlertSubmission> {
   return {
@@ -25,6 +30,102 @@ function createCallbackProvider(handleCallback: ReturnType<typeof vi.fn>): Provi
 }
 
 describe('dispatchCardActionRequest', () => {
+  it('forwards ai-conversation reservation card clicks only through adapter pending-action callback forwarding', async () => {
+    const registry = createProviderRegistry();
+    const router = createProviderRouter(registry);
+    const pendingStore = createPendingStore({
+      ttlMs: 1_000,
+      now: () => 1_000,
+      idGenerator: () => 'pending-unused'
+    });
+    pendingStore.put({
+      providerKey: AI_CONVERSATION_RESERVATION_CARD_PROVIDER_KEY,
+      pendingId: 'reservation-card-1',
+      actionId: AI_CONVERSATION_RESERVATION_CARD_ACTION_ID,
+      payload: {
+        pendingKind: 'ai-conversation-reservation-confirmation-card.v1',
+        correlationId: 'corr-reservation-card-1',
+        pendingAction: {
+          pendingActionRef: 'pending-reservation-raw-1',
+          cardPayloadRef: 'card-reservation-raw-1',
+          quoteRef: 'quote-reservation-raw-1',
+          propertyId: 'default'
+        }
+      },
+      target: { channel: 'feishu', chatId: 'oc-reservation-1' }
+    });
+    const forwardCallback = vi.fn().mockResolvedValue({ statusCode: 200, body: { ok: true, status: 'ok' } });
+
+    const response = await dispatchCardActionRequest(
+      {
+        method: 'POST',
+        pathname: '/providers/card-action',
+        rawBody: JSON.stringify({
+          action: {
+            value: {
+              providerKey: AI_CONVERSATION_RESERVATION_CARD_PROVIDER_KEY,
+              pendingId: 'reservation-card-1',
+              actionId: AI_CONVERSATION_RESERVATION_CARD_ACTION_ID,
+              operation: PMS_PENDING_ACTION_CONFIRM_OPERATION,
+              correlationId: 'corr-reservation-card-1'
+            }
+          },
+          open_id: 'ou-frontdesk-1',
+          open_chat_id: 'oc-reservation-1'
+        })
+      },
+      {
+        providerRouter: router,
+        pendingStore,
+        replySink: {
+          sendNotification: vi.fn().mockResolvedValue({
+            providerKey: AI_CONVERSATION_RESERVATION_CARD_PROVIDER_KEY,
+            deliveryId: 'delivery-1',
+            channel: 'feishu',
+            status: 'delivered'
+          })
+        },
+        callbackForwarder: { forwardCallback },
+        now: () => '2026-05-05T00:00:00.000Z'
+      }
+    );
+
+    expect(response).toEqual({
+      statusCode: 200,
+      body: {
+        code: 0,
+        providerKey: AI_CONVERSATION_RESERVATION_CARD_PROVIDER_KEY,
+        status: 'accepted'
+      }
+    });
+    expect(forwardCallback).toHaveBeenCalledWith(expect.objectContaining({
+      envelope: expect.objectContaining({
+        source: 'adapter-feishu',
+        platformPendingAction: expect.objectContaining({
+          operation: PMS_PENDING_ACTION_CONFIRM_OPERATION,
+          request: expect.objectContaining({
+            operation: PMS_PENDING_ACTION_CONFIRM_OPERATION,
+            pendingActionRef: 'pending-reservation-raw-1',
+            cardPayloadRef: 'card-reservation-raw-1',
+            correlationId: 'corr-reservation-card-1',
+            scope: expect.objectContaining({ propertyId: 'default', channel: 'typed_card' })
+          })
+        }),
+        orchestrator: expect.objectContaining({
+          callbackOwner: 'adapter-feishu',
+          targetOwner: 'pms-platform',
+          naturalLanguageConfirmAllowed: false
+        })
+      }),
+      metadata: expect.objectContaining({
+        providerKey: AI_CONVERSATION_RESERVATION_CARD_PROVIDER_KEY,
+        operation: PMS_PENDING_ACTION_CONFIRM_OPERATION,
+        rawRefsLogged: false
+      })
+    }));
+    expect(pendingStore.get(AI_CONVERSATION_RESERVATION_CARD_PROVIDER_KEY, 'reservation-card-1')).toBeUndefined();
+  });
+
   it('consumes provider-scoped pending state and forwards a callback turn to the resolved provider', async () => {
     const handleCallback = vi.fn().mockResolvedValue({
       providerKey: 'warning-agent',
