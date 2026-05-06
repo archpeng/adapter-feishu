@@ -4,6 +4,10 @@ import {
   handleConversationReservationCardAction,
   isConversationReservationCardAction,
 } from '../conversation/reservationCardDelivery.js';
+import {
+  handlePmsAgentPendingAction,
+  isPmsAgentPendingAction,
+} from '../pmsAgent/delivery.js';
 import type { ProviderCallbackForwarder, ProviderExecutionResult, ProviderNotificationSink } from '../providers/contracts.js';
 import type { ProviderRouter } from '../providers/router.js';
 import type { PendingActionRecord, PendingStore } from '../state/pendingStore.js';
@@ -87,18 +91,24 @@ export async function dispatchCardActionRequest(
   }
 
   const callbackTurn = buildCallbackTurn(payload, actionValue, pendingRecord.target, deps.now, providerKey);
-  const result = isConversationReservationCardAction(providerKey, actionId)
-    ? await handleConversationReservationCardAction({
+  const result = isPmsAgentPendingAction(providerKey, actionId)
+    ? await handlePmsAgentPendingAction({
         turn: callbackTurn,
         pendingRecord,
         callbackForwarder: deps.callbackForwarder
       }).catch((error: unknown) => ({ error }))
-    : await dispatchProviderCallback({
-        providerKey,
-        callbackTurn,
-        pendingRecord,
-        deps
-      });
+    : isConversationReservationCardAction(providerKey, actionId)
+      ? await handleConversationReservationCardAction({
+          turn: callbackTurn,
+          pendingRecord,
+          callbackForwarder: deps.callbackForwarder
+        }).catch((error: unknown) => ({ error }))
+      : await dispatchProviderCallback({
+          providerKey,
+          callbackTurn,
+          pendingRecord,
+          deps
+        });
 
   if ('error' in result) {
     return {

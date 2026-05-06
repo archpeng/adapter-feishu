@@ -1,5 +1,6 @@
 import type { FeishuUserIdType } from './channels/feishu/bitableClient.js';
 import { AI_CONVERSATION_AUTH_ENV_NAME, AI_CONVERSATION_AUTH_HEADER } from './conversation/forwarder.js';
+import { PMS_AGENT_AUTH_ENV_NAME, PMS_AGENT_AUTH_HEADER, PMS_AGENT_TURN_URL_ENV_NAME } from './pmsAgent/contracts.js';
 
 export type IngressMode = 'webhook' | 'long_connection';
 export type PmsPendingActionCallbackMode = 'platform';
@@ -63,6 +64,18 @@ export interface AdapterConfig {
     inboundAuthToken?: string;
     inboundAuthHeader: typeof AI_CONVERSATION_AUTH_HEADER;
     inboundAuthEnvName: typeof AI_CONVERSATION_AUTH_ENV_NAME;
+    turnTimeoutMs: number;
+    allowedChatIds: string[];
+    allowedOpenIds: string[];
+    allowedUserIds: string[];
+    allowedUnionIds: string[];
+  };
+  pmsAgent: {
+    turnUrl?: string;
+    authToken?: string;
+    authHeader: typeof PMS_AGENT_AUTH_HEADER;
+    authEnvName: typeof PMS_AGENT_AUTH_ENV_NAME;
+    turnUrlEnvName: typeof PMS_AGENT_TURN_URL_ENV_NAME;
     turnTimeoutMs: number;
     allowedChatIds: string[];
     allowedOpenIds: string[];
@@ -210,6 +223,8 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   const pmsPendingActionToken = env.PMS_PLATFORM_PENDING_ACTION_TOKEN?.trim() || undefined;
   const conversationTurnUrl = parseOptionalUrl(env, 'ADAPTER_FEISHU_CONVERSATION_TURN_URL');
   const conversationInboundAuthToken = env.AI_CONVERSATION_INBOUND_AUTH_TOKEN?.trim() || undefined;
+  const pmsAgentTurnUrl = parseOptionalUrl(env, PMS_AGENT_TURN_URL_ENV_NAME);
+  const pmsAgentAuthToken = env.PMS_AGENT_AUTH_TOKEN?.trim() || undefined;
   const adapterAllowedChatIds = parseCsv(
     env,
     'ADAPTER_FEISHU_ALLOWED_CHAT_IDS',
@@ -236,6 +251,16 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   if (conversationTurnUrl && adapterAllowedChatIds.length === 0) {
     throw new Error(
       'ADAPTER_FEISHU_ALLOWED_CHAT_IDS or FEISHU_HOME_CHANNEL must be set when ADAPTER_FEISHU_CONVERSATION_TURN_URL is set'
+    );
+  }
+
+  if (pmsAgentTurnUrl && !pmsAgentAuthToken) {
+    throw new Error('PMS_AGENT_AUTH_TOKEN must be set when PMS_AGENT_TURN_URL is set');
+  }
+
+  if (pmsAgentTurnUrl && adapterAllowedChatIds.length === 0) {
+    throw new Error(
+      'ADAPTER_FEISHU_ALLOWED_CHAT_IDS or FEISHU_HOME_CHANNEL must be set when PMS_AGENT_TURN_URL is set'
     );
   }
 
@@ -293,6 +318,18 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       inboundAuthHeader: AI_CONVERSATION_AUTH_HEADER,
       inboundAuthEnvName: AI_CONVERSATION_AUTH_ENV_NAME,
       turnTimeoutMs: parsePositiveInteger(env, 'ADAPTER_FEISHU_CONVERSATION_TURN_TIMEOUT_MS', 5_000),
+      allowedChatIds: adapterAllowedChatIds,
+      allowedOpenIds: adapterAllowedOpenIds,
+      allowedUserIds: adapterAllowedUserIds,
+      allowedUnionIds: adapterAllowedUnionIds
+    },
+    pmsAgent: {
+      turnUrl: pmsAgentTurnUrl,
+      authToken: pmsAgentAuthToken,
+      authHeader: PMS_AGENT_AUTH_HEADER,
+      authEnvName: PMS_AGENT_AUTH_ENV_NAME,
+      turnUrlEnvName: PMS_AGENT_TURN_URL_ENV_NAME,
+      turnTimeoutMs: parsePositiveInteger(env, 'PMS_AGENT_TURN_TIMEOUT_MS', 5_000),
       allowedChatIds: adapterAllowedChatIds,
       allowedOpenIds: adapterAllowedOpenIds,
       allowedUserIds: adapterAllowedUserIds,

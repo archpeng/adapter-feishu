@@ -122,6 +122,18 @@ function createConfig(
       allowedOpenIds: [],
       allowedUserIds: [],
       allowedUnionIds: []
+    },
+    pmsAgent: {
+      turnUrl: undefined,
+      authToken: undefined,
+      authHeader: 'X-PMS-AGENT-TOKEN',
+      authEnvName: 'PMS_AGENT_AUTH_TOKEN',
+      turnUrlEnvName: 'PMS_AGENT_TURN_URL',
+      turnTimeoutMs: 5000,
+      allowedChatIds: [],
+      allowedOpenIds: [],
+      allowedUserIds: [],
+      allowedUnionIds: []
     }
   };
 }
@@ -578,6 +590,88 @@ describe('createAdapterRuntime', () => {
         title: 'PMS智能助手',
         summary: '收到。我可以查询 PMS 房态或发起预演。',
         target: { channel: 'feishu', chatId: 'fixture-chat-allowed', messageId: 'msg-conversation-1' }
+      }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('forwards authorized command turns to pms-agent-v2 and delivers AgentResult text', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ type: 'text', text: '今晚可订。' }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const sendNotification = vi.fn().mockResolvedValue({
+      providerKey: 'pms-agent-v2',
+      deliveryId: 'delivery-1',
+      channel: 'feishu',
+      status: 'delivered'
+    });
+    let handleTurn: Parameters<AdapterRuntimeDeps['createLongConnectionIngress']>[1] | undefined;
+    const config = createConfig('long_connection');
+    config.pmsAgent = {
+      turnUrl: 'http://127.0.0.1:8795/v1/feishu-turn',
+      authToken: 'agent-token-1',
+      authHeader: 'X-PMS-AGENT-TOKEN',
+      authEnvName: 'PMS_AGENT_AUTH_TOKEN',
+      turnUrlEnvName: 'PMS_AGENT_TURN_URL',
+      turnTimeoutMs: 5000,
+      allowedChatIds: ['fixture-chat-allowed'],
+      allowedOpenIds: ['fixture-user-allowed'],
+      allowedUserIds: [],
+      allowedUnionIds: []
+    };
+
+    try {
+      createAdapterRuntime(config, {
+        createClient: () => createFeishuClientStub(),
+        createBitableClient: () => createBitableClientStub(),
+        createReplySink: () => ({ sendNotification }),
+        createHttpServer: () => ({
+          listen: vi.fn().mockResolvedValue(undefined),
+          close: vi.fn().mockResolvedValue(undefined)
+        }),
+        createLongConnectionIngress: (_config, nextHandleTurn) => {
+          handleTurn = nextHandleTurn;
+          return {
+            start: vi.fn().mockResolvedValue(undefined),
+            stop: vi.fn().mockResolvedValue(undefined)
+          };
+        }
+      });
+
+      await handleTurn?.({
+        turnId: 'msg-pms-agent-1',
+        channel: 'feishu',
+        intent: 'command',
+        receivedAt: '2026-05-06T12:00:00.000Z',
+        actor: { openId: 'fixture-user-allowed', tenantKey: 'tenant-1' },
+        target: { channel: 'feishu', chatId: 'fixture-chat-allowed', messageId: 'msg-pms-agent-1' },
+        text: '查今晚房态',
+        rawEvent: {},
+        metadata: { eventType: 'im.message.receive_v1' }
+      }, {
+        source: 'long_connection',
+        rawEvent: {}
+      });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [url, init] = fetchMock.mock.calls[0];
+      expect(url).toBe('http://127.0.0.1:8795/v1/feishu-turn');
+      expect(init?.headers).toMatchObject({
+        'content-type': 'application/json',
+        'X-PMS-AGENT-TOKEN': 'agent-token-1'
+      });
+      expect(JSON.parse(String(init?.body))).toMatchObject({
+        channel: 'feishu',
+        tenantId: 'tenant-1',
+        sessionId: 'fixture-chat-allowed',
+        messageId: 'msg-pms-agent-1',
+        message: { text: '查今晚房态' }
+      });
+      expect(sendNotification).toHaveBeenCalledWith(expect.objectContaining({
+        providerKey: 'pms-agent-v2',
+        title: 'PMS智能助手',
+        summary: '今晚可订。',
+        target: { channel: 'feishu', chatId: 'fixture-chat-allowed', messageId: 'msg-pms-agent-1' }
       }));
     } finally {
       vi.unstubAllGlobals();

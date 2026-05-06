@@ -18,6 +18,9 @@ import {
   buildConversationReservationCardNotification,
   conversationReservationCardReplies,
 } from './conversation/reservationCardDelivery.js';
+import { createPmsAgentHttpTurnForwarder } from './pmsAgent/forwarder.js';
+import { PMS_AGENT_PROVIDER_KEY } from './pmsAgent/contracts.js';
+import { pmsAgentResultNotifications } from './pmsAgent/delivery.js';
 import { type InboundTurn, type JsonRecord } from './core/contracts.js';
 import { loadManagedFormRegistry, type ManagedFormRegistry } from './forms/registry.js';
 import {
@@ -140,6 +143,15 @@ export function createAdapterRuntime(
       })
     : undefined;
   const formConfig = config.form;
+  const pmsAgentConfig = config.pmsAgent;
+  const pmsAgentTurnForwarder = pmsAgentConfig.turnUrl && pmsAgentConfig.authToken
+    ? createPmsAgentHttpTurnForwarder({
+        url: pmsAgentConfig.turnUrl,
+        token: pmsAgentConfig.authToken,
+        headerName: pmsAgentConfig.authHeader,
+        timeoutMs: pmsAgentConfig.turnTimeoutMs
+      })
+    : undefined;
   const conversationConfig = config.conversation;
   const conversationTurnForwarder = conversationConfig.turnUrl && conversationConfig.inboundAuthToken
     ? createConversationHttpTurnForwarder({
@@ -202,6 +214,66 @@ export function createAdapterRuntime(
 
     if (logInboundSummary) {
       logSafeInboundSummary('adapter_feishu_inbound_turn_summary', turn, resolution.providerKey);
+    }
+
+    if (turn.intent === 'command' && pmsAgentTurnForwarder) {
+      const authorization = authorizeAdapterOwnedTurn(turn, pmsAgentConfig);
+      if (!authorization.ok) {
+        if (logInboundSummary) {
+          logSafeForwardingDecision('adapter_feishu_pms_agent_turn_rejected', turn, PMS_AGENT_PROVIDER_KEY, {
+            reason: authorization.reason,
+            route: 'pms-agent-v2'
+          });
+        }
+        return;
+      }
+
+      const dedupeDecision = deduper.markSeen({
+        providerKey: PMS_AGENT_PROVIDER_KEY,
+        dedupeKey: pmsAgentTurnDedupeKey(turn)
+      });
+      if (dedupeDecision.isDuplicate) {
+        if (logInboundSummary) {
+          console.log(JSON.stringify({
+            event: 'adapter_feishu_pms_agent_turn_duplicate_suppressed',
+            providerKey: PMS_AGENT_PROVIDER_KEY,
+            route: 'pms-agent-v2',
+            turnHash: hashRedacted(turn.turnId)
+          }));
+        }
+        return;
+      }
+
+      try {
+        const forwardResult = await pmsAgentTurnForwarder.forwardTurn(turn);
+        if (logInboundSummary) {
+          console.log(JSON.stringify({
+            event: 'adapter_feishu_pms_agent_turn_forwarded',
+            providerKey: PMS_AGENT_PROVIDER_KEY,
+            route: 'pms-agent-v2',
+            turnHash: hashRedacted(turn.turnId),
+            statusCode: forwardResult.statusCode,
+            resultType: forwardResult.result?.type
+          }));
+        }
+        await deliverPmsAgentResult({
+          replySink,
+          turn,
+          result: forwardResult.result,
+          logInboundSummary,
+          pendingStore,
+          now
+        });
+      } catch (error) {
+        if (logInboundSummary) {
+          logSafeForwardingDecision('adapter_feishu_pms_agent_turn_forward_failed', turn, PMS_AGENT_PROVIDER_KEY, {
+            route: 'pms-agent-v2',
+            errorName: error instanceof Error ? error.name : 'UnknownError',
+            errorMessageHash: hashRedacted(error instanceof Error ? error.message : String(error))
+          });
+        }
+      }
+      return;
     }
 
     if (turn.intent === 'command' && conversationTurnForwarder) {
@@ -515,8 +587,50 @@ function authorizeAdapterOwnedTurn(
   return { ok: false, reason: 'actor_not_allowed' };
 }
 
+function pmsAgentTurnDedupeKey(turn: InboundTurn): string {
+  return `pms-agent-turn:${turn.turnId}`;
+}
+
 function conversationTurnDedupeKey(turn: InboundTurn): string {
   return `conversation-turn:${turn.turnId}`;
+}
+
+async function deliverPmsAgentResult(input: {
+  replySink: ReplySink;
+  turn: InboundTurn;
+  result: Parameters<typeof pmsAgentResultNotifications>[0]['result'] | undefined;
+  logInboundSummary: boolean;
+  pendingStore: PendingStore;
+  now: () => string;
+}): Promise<void> {
+  if (!input.result) return;
+  const notifications = pmsAgentResultNotifications({
+    result: input.result,
+    turn: input.turn,
+    pendingStore: input.pendingStore,
+    now: input.now
+  });
+  for (const notification of notifications) {
+    try {
+      await input.replySink.sendNotification(notification);
+      if (input.logInboundSummary) {
+        console.log(JSON.stringify({
+          event: 'adapter_feishu_pms_agent_result_delivered',
+          providerKey: PMS_AGENT_PROVIDER_KEY,
+          turnHash: hashRedacted(input.turn.turnId),
+          notificationId: notification.notificationId
+        }));
+      }
+    } catch (error) {
+      if (input.logInboundSummary) {
+        logSafeForwardingDecision('adapter_feishu_pms_agent_result_failed', input.turn, PMS_AGENT_PROVIDER_KEY, {
+          route: 'pms-agent-result',
+          errorName: error instanceof Error ? error.name : 'UnknownError',
+          errorMessageHash: hashRedacted(error instanceof Error ? error.message : String(error))
+        });
+      }
+    }
+  }
 }
 
 async function deliverConversationReplies(input: {
