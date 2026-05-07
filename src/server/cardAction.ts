@@ -1,8 +1,10 @@
+import { createHash } from 'node:crypto';
 import type { IncomingHttpHeaders } from 'node:http';
 import type { DeliveryTarget, InboundTurn, JsonRecord } from '../core/contracts.js';
 import {
   handlePmsAgentPendingAction,
   isPmsAgentPendingAction,
+  pmsAgentPendingActionTerminalNotification,
 } from '../pmsAgent/delivery.js';
 import type { ProviderCallbackForwarder, ProviderExecutionResult, ProviderNotificationSink } from '../providers/contracts.js';
 import type { ProviderRouter } from '../providers/router.js';
@@ -123,6 +125,15 @@ export async function dispatchCardActionRequest(
     };
   }
 
+  if (isPmsAgentPendingAction(providerKey, actionId)) {
+    await deliverPmsAgentTerminalNotification({
+      turn: callbackTurn,
+      pendingRecord,
+      result,
+      deps
+    });
+  }
+
   deps.pendingStore.consume(providerKey, pendingId);
 
   return {
@@ -133,6 +144,37 @@ export async function dispatchCardActionRequest(
       status: result.status
     }
   };
+}
+
+async function deliverPmsAgentTerminalNotification(input: {
+  turn: InboundTurn;
+  pendingRecord: PendingActionRecord;
+  result: ProviderExecutionResult;
+  deps: CardActionDispatchDeps;
+}): Promise<void> {
+  const notification = pmsAgentPendingActionTerminalNotification({
+    turn: input.turn,
+    pendingRecord: input.pendingRecord,
+    result: input.result,
+    now: input.deps.now ?? (() => new Date().toISOString())
+  });
+
+  if (input.deps.replySink.updateNotification) {
+    try {
+      await input.deps.replySink.updateNotification(notification);
+      return;
+    } catch (error) {
+      console.log(JSON.stringify({
+        event: 'adapter_feishu_card_update_failed',
+        providerKey: input.pendingRecord.providerKey,
+        pendingIdHash: hashRedacted(input.pendingRecord.pendingId),
+        errorName: error instanceof Error ? error.name : 'UnknownError',
+        errorMessageHash: hashRedacted(error instanceof Error ? error.message : String(error))
+      }));
+    }
+  }
+
+  await input.deps.replySink.sendNotification(notification);
 }
 
 async function dispatchProviderCallback(input: {
@@ -186,6 +228,10 @@ function buildCallbackTurn(
       pendingId: stringField(actionValue, 'pendingId') ?? ''
     }
   };
+}
+
+function hashRedacted(value: string): string {
+  return createHash('sha256').update(value).digest('hex').slice(0, 16);
 }
 
 function actorFromPayload(payload: JsonRecord): InboundTurn['actor'] | undefined {

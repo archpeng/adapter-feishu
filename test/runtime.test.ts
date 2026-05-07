@@ -298,7 +298,6 @@ describe('createAdapterRuntime', () => {
       allowedUserIds: [],
       allowedUnionIds: []
     };
-
     try {
       createAdapterRuntime(config, {
         createClient: () => createFeishuClientStub(),
@@ -583,6 +582,18 @@ describe('createAdapterRuntime', () => {
       allowedUserIds: [],
       allowedUnionIds: []
     };
+    config.pmsAgent = {
+      turnUrl: 'http://127.0.0.1:8795/v1/feishu-turn',
+      authToken: 'agent-token-1',
+      authHeader: 'X-PMS-AGENT-TOKEN',
+      authEnvName: 'PMS_AGENT_AUTH_TOKEN',
+      turnUrlEnvName: 'PMS_AGENT_TURN_URL',
+      turnTimeoutMs: 5000,
+      allowedChatIds: ['fixture-chat-allowed'],
+      allowedOpenIds: ['fixture-open-id-allowed'],
+      allowedUserIds: ['fixture-user-id-allowed'],
+      allowedUnionIds: []
+    };
 
     createAdapterRuntime(config, {
       createClient: () => createFeishuClientStub(),
@@ -630,11 +641,29 @@ describe('createAdapterRuntime', () => {
           rawCallbackUrlLogged: false,
           rawPlatformBaseUrlLogged: false,
           rawTokenLogged: false
+        },
+        pmsAgent: {
+          enabled: true,
+          turnConfigured: true,
+          authConfigured: true,
+          turnUrlEnvName: 'PMS_AGENT_TURN_URL',
+          authEnvName: 'PMS_AGENT_AUTH_TOKEN',
+          authHeader: 'X-PMS-AGENT-TOKEN',
+          allowedChatIdsCount: 1,
+          allowedOpenIdsCount: 1,
+          allowedUserIdsCount: 1,
+          allowedUnionIdsCount: 0,
+          rawTurnUrlLogged: false,
+          rawTokenLogged: false
         }
       }
     });
     expect(JSON.stringify(response)).not.toContain('callback-token-1');
     expect(JSON.stringify(response)).not.toContain('platform-token-1');
+    expect(JSON.stringify(response)).not.toContain('agent-token-1');
+    expect(JSON.stringify(response)).not.toContain('fixture-chat-allowed');
+    expect(JSON.stringify(response)).not.toContain('fixture-open-id-allowed');
+    expect(JSON.stringify(response)).not.toContain('fixture-user-id-allowed');
     expect(JSON.stringify(response)).not.toContain('127.0.0.1');
   });
 
@@ -795,12 +824,13 @@ describe('createAdapterRuntime', () => {
         recordId: 'rec_1',
         clientToken: '9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d',
         targetSource: 'default',
-        target: {
-          appToken: 'app_token_default',
-          tableId: 'tbl_default',
-          formId: 'form_default'
-        }
+        targetConfigured: true,
+        targetRefHash: '397bf34de7cb8eca',
+        rawTargetLogged: false
       }
     });
+    expect(JSON.stringify(response)).not.toContain('app_token_default');
+    expect(JSON.stringify(response)).not.toContain('tbl_default');
+    expect(JSON.stringify(response)).not.toContain('form_default');
   });
 });

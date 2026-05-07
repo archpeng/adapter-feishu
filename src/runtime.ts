@@ -330,6 +330,20 @@ export function createAdapterRuntime(
           rawPlatformBaseUrlLogged: false,
           rawTokenLogged: false
         },
+        pmsAgentHealth: {
+          enabled: Boolean(pmsAgentConfig.turnUrl),
+          turnConfigured: Boolean(pmsAgentConfig.turnUrl),
+          authConfigured: Boolean(pmsAgentConfig.authToken),
+          turnUrlEnvName: pmsAgentConfig.turnUrlEnvName,
+          authEnvName: pmsAgentConfig.authEnvName,
+          authHeader: pmsAgentConfig.authHeader,
+          allowedChatIdsCount: pmsAgentConfig.allowedChatIds.length,
+          allowedOpenIdsCount: pmsAgentConfig.allowedOpenIds.length,
+          allowedUserIdsCount: pmsAgentConfig.allowedUserIds.length,
+          allowedUnionIdsCount: pmsAgentConfig.allowedUnionIds.length,
+          rawTurnUrlLogged: false,
+          rawTokenLogged: false
+        },
         handleFeishuWebhook(requestBody) {
           if (config.feishu.ingressMode !== 'webhook') {
             return Promise.resolve({

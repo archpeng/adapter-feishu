@@ -8,6 +8,7 @@ import type { FeishuMessageSendClient } from './types.js';
 
 export interface ReplySink {
   sendNotification(notification: ProviderNotification): Promise<ProviderDeliveryResult>;
+  updateNotification(notification: ProviderNotification): Promise<ProviderDeliveryResult>;
 }
 
 export function createReplySink(client: FeishuMessageSendClient): ReplySink {
@@ -34,6 +35,28 @@ export function createReplySink(client: FeishuMessageSendClient): ReplySink {
 
       const response = await client.sendText(target, `${notification.title}\n\n${notification.summary}`);
       return buildResult(notification, target, deliveredAt, response.messageId, 'text message sent');
+    },
+    async updateNotification(notification) {
+      const target = requireTarget(notification.target);
+      if (!target.messageId) {
+        throw new Error('Provider notification target.messageId is required for Feishu card update');
+      }
+      if (!client.updateCard) {
+        throw new Error('Feishu client updateCard is required for card update');
+      }
+      const deliveredAt = new Date().toISOString();
+      const response = await client.updateCard(
+        target.messageId,
+        renderInteractiveCard({
+          title: notification.title,
+          summary: notification.summary,
+          severity: notification.severity,
+          bodyMarkdown: notification.bodyMarkdown,
+          facts: notification.facts,
+          actions: notification.actions
+        })
+      );
+      return buildResult(notification, target, deliveredAt, response.messageId, 'interactive card updated');
     }
   };
 }

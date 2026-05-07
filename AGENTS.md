@@ -41,6 +41,14 @@ Ownership split:
 
 Do not add `@mariozechner/pi-agent-core`, `@mariozechner/pi-ai`, `@mariozechner/pi-coding-agent`, or LLM/agent runtime packages to this repo. The Feishu SDK dependency belongs here; PMS Agent runtime belongs outside this adapter; platform-owned PMS workflows and truth belong in `pms-platform`.
 
+## AI-readable iteration law
+
+- README must name the active `Feishu -> adapter-feishu -> pms-agent-v2 -> pms-platform` chain and keep `pms-agent-v2` as the natural-language PMS turn path.
+- `/health` must expose non-sensitive integration config state for PMS Agent and PMS Platform callback paths without raw URLs, tokens, raw chat IDs, raw user IDs, or raw Base target IDs.
+- Form webhook success and duplicate responses must not expose raw Feishu Base target IDs; use `targetSource`, `targetConfigured`, `targetRefHash`, and `rawTargetLogged`.
+- New PMS callback/envelope code must use explicit typed builders/parsers instead of unchecked `as unknown as` casts at transport boundaries.
+- New behavior added to large shared files must first look for a single-responsibility helper extraction so registry parsing, schema validation, business field mapping, redaction, HTTP dispatch, and callback-envelope code do not keep accumulating in one module.
+
 ## Validation
 
 `npm run verify` is the repo-local verification ladder. It must run `scripts/check-boundaries.mjs` before build/test so accidental Pi Agent/LLM runtime drift fails before Feishu transport verification proceeds.

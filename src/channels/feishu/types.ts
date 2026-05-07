@@ -52,6 +52,7 @@ export interface FeishuClientSendResult {
 export type FeishuMessageSendClient = {
   sendText(target: DeliveryTarget, text: string): Promise<FeishuClientSendResult>;
   sendCard(target: DeliveryTarget, card: Record<string, unknown>): Promise<FeishuClientSendResult>;
+  updateCard?(messageId: string, card: Record<string, unknown>): Promise<FeishuClientSendResult>;
 };
 
 export function resolveFeishuMessageTarget(target: DeliveryTarget): FeishuMessageTarget {

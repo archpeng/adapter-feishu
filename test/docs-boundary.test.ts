@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
+const agents = readFileSync(new URL('../AGENTS.md', import.meta.url), 'utf8');
 const architectureDoc = readFileSync(
   new URL('../docs/architecture/adapter-feishu-architecture.md', import.meta.url),
   'utf8'
@@ -39,7 +40,25 @@ const managedFormAnchors = [
   'target_not_allowed_for_managed_form',
   'field_not_mapped',
   'fixed_field_conflict',
-  'targetSource": "managed"'
+  'targetSource": "managed"',
+  'targetConfigured',
+  'targetRefHash',
+  'rawTargetLogged'
+];
+
+const pmsAgentPathAnchors = [
+  'Feishu PMS natural-language turn -> adapter-feishu -> pms-agent-v2 -> pms-platform',
+  'natural-language PMS command turns are allowlist/dedupe guarded and forwarded to `pms-agent-v2`',
+  '/health` exposes only non-sensitive PMS Agent config state',
+  'PMS Agent approval cards are rendered by adapter-feishu as typed cards'
+];
+
+const iterationLawAnchors = [
+  'README must name the active `Feishu -> adapter-feishu -> pms-agent-v2 -> pms-platform` chain',
+  '/health` must expose non-sensitive integration config state',
+  'Form webhook success and duplicate responses must not expose raw Feishu Base target IDs',
+  'explicit typed builders/parsers instead of unchecked `as unknown as` casts',
+  'single-responsibility helper extraction'
 ];
 
 describe('documentation boundary freeze', () => {
@@ -117,6 +136,22 @@ describe('documentation boundary freeze', () => {
     expect(formRunbook).toContain('CHECK_OUT');
     expect(formRunbook).toContain('REPORT_MAINTENANCE');
     expect(formRunbook).toContain('HOUSEKEEPING_DONE');
+    expect(formRunbook).toContain('They do not return raw `appToken`, `tableId`, or `formId`.');
+  });
+
+  it('keeps pms-agent-v2 as the documented natural-language PMS path', () => {
+    for (const anchor of pmsAgentPathAnchors) {
+      expect(readme).toContain(anchor);
+    }
+
+    for (const anchor of iterationLawAnchors) {
+      expect(agents).toContain(anchor);
+    }
+
+    expect(envExample).toContain('PMS_AGENT_TURN_URL');
+    expect(envExample).toContain('PMS_AGENT_AUTH_TOKEN');
+    expect(envExample).not.toContain('ADAPTER_FEISHU_CONVERSATION_TURN_URL');
+    expect(envExample).not.toContain('AI_CONVERSATION_INBOUND_AUTH_TOKEN');
   });
 
   it('keeps PMS Base schema ownership delegated to pms-platform', () => {

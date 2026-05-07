@@ -29,10 +29,26 @@ export interface AdapterPmsCheckoutHealth {
   rawTokenLogged: false;
 }
 
+export interface AdapterPmsAgentHealth {
+  enabled: boolean;
+  turnConfigured: boolean;
+  authConfigured: boolean;
+  turnUrlEnvName: 'PMS_AGENT_TURN_URL';
+  authEnvName: 'PMS_AGENT_AUTH_TOKEN';
+  authHeader: 'X-PMS-AGENT-TOKEN';
+  allowedChatIdsCount: number;
+  allowedOpenIdsCount: number;
+  allowedUserIdsCount: number;
+  allowedUnionIdsCount: number;
+  rawTurnUrlLogged: false;
+  rawTokenLogged: false;
+}
+
 export interface AdapterHttpDispatchDeps {
   ingressMode: IngressMode;
   providerKeys: string[];
   pmsCheckoutHealth?: AdapterPmsCheckoutHealth;
+  pmsAgentHealth?: AdapterPmsAgentHealth;
   handleFeishuWebhook(request: DispatchRequest): Promise<DispatchResponse>;
   handleProviderWebhook(request: ProviderWebhookRequest): Promise<ProviderWebhookResponse>;
   handleFormWebhook(request: FormWebhookRequest): Promise<FormWebhookResponse>;
@@ -54,7 +70,8 @@ export async function dispatchAdapterHttpRequest(
         status: 'ok',
         ingressMode: deps.ingressMode,
         providers: deps.providerKeys,
-        ...(deps.pmsCheckoutHealth ? { pmsCheckout: deps.pmsCheckoutHealth } : {})
+        ...(deps.pmsCheckoutHealth ? { pmsCheckout: deps.pmsCheckoutHealth } : {}),
+        ...(deps.pmsAgentHealth ? { pmsAgent: deps.pmsAgentHealth } : {})
       }
     };
   }

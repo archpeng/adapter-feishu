@@ -27,6 +27,20 @@ describe('dispatchAdapterHttpRequest', () => {
     const deps = {
       ingressMode: 'webhook' as const,
       providerKeys: ['warning-agent'],
+      pmsAgentHealth: {
+        enabled: true,
+        turnConfigured: true,
+        authConfigured: true,
+        turnUrlEnvName: 'PMS_AGENT_TURN_URL' as const,
+        authEnvName: 'PMS_AGENT_AUTH_TOKEN' as const,
+        authHeader: 'X-PMS-AGENT-TOKEN' as const,
+        allowedChatIdsCount: 1,
+        allowedOpenIdsCount: 0,
+        allowedUserIdsCount: 0,
+        allowedUnionIdsCount: 0,
+        rawTurnUrlLogged: false as const,
+        rawTokenLogged: false as const
+      },
       handleFeishuWebhook,
       handleProviderWebhook,
       handleFormWebhook,
@@ -106,9 +120,25 @@ describe('dispatchAdapterHttpRequest', () => {
         code: 0,
         status: 'ok',
         ingressMode: 'webhook',
-        providers: ['warning-agent']
+        providers: ['warning-agent'],
+        pmsAgent: {
+          enabled: true,
+          turnConfigured: true,
+          authConfigured: true,
+          turnUrlEnvName: 'PMS_AGENT_TURN_URL',
+          authEnvName: 'PMS_AGENT_AUTH_TOKEN',
+          authHeader: 'X-PMS-AGENT-TOKEN',
+          allowedChatIdsCount: 1,
+          allowedOpenIdsCount: 0,
+          allowedUserIdsCount: 0,
+          allowedUnionIdsCount: 0,
+          rawTurnUrlLogged: false,
+          rawTokenLogged: false
+        }
       }
     });
+    expect(JSON.stringify(health)).not.toContain('http://127.0.0.1');
+    expect(JSON.stringify(health)).not.toContain('agent-token');
     expect(providerWebhook.statusCode).toBe(202);
     expect(formWebhook).toEqual({
       statusCode: 200,

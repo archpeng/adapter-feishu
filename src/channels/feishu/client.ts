@@ -18,6 +18,7 @@ export interface FeishuClientConfig {
 export interface FeishuClient {
   sendText(target: DeliveryTarget, text: string): Promise<FeishuClientSendResult>;
   sendCard(target: DeliveryTarget, card: Record<string, unknown>): Promise<FeishuClientSendResult>;
+  updateCard(messageId: string, card: Record<string, unknown>): Promise<FeishuClientSendResult>;
 }
 
 export function createFeishuClient(config: FeishuClientConfig): FeishuClient {
@@ -94,12 +95,43 @@ export function createFeishuClient(config: FeishuClientConfig): FeishuClient {
     };
   }
 
+  async function updateMessageCard(messageId: string, card: Record<string, unknown>): Promise<FeishuClientSendResult> {
+    const accessToken = await getAccessToken();
+    const target = { channel: 'feishu' as const, messageId };
+    logSafeMessageSend('adapter_feishu_message_card_update_attempt', target, 'chat_id', { msgType: 'interactive' });
+    const response = await fetchImpl(`${baseUrl}/open-apis/im/v1/messages/${encodeURIComponent(messageId)}`, {
+      method: 'PATCH',
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        content: JSON.stringify(card)
+      })
+    });
+    const payload = await parseJsonObject(response);
+
+    if (!response.ok || payload.code !== 0) {
+      logSafeMessageSend('adapter_feishu_message_card_update_failed', target, 'chat_id', {
+        msgType: 'interactive',
+        statusCode: response.status,
+        feishuCode: numberValue(payload.code)
+      });
+      throw new Error(`Failed to update Feishu message card: ${stringValue(payload.msg) ?? response.statusText}`);
+    }
+
+    return { messageId };
+  }
+
   return {
     async sendText(target, text) {
       return sendMessage(target, 'text', JSON.stringify({ text }));
     },
     async sendCard(target, card) {
       return sendMessage(target, 'interactive', JSON.stringify(card));
+    },
+    updateCard(messageId, card) {
+      return updateMessageCard(messageId, card);
     }
   };
 }

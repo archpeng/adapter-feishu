@@ -30,7 +30,8 @@ import {
   type PmsCheckoutProjectionEnvelope,
   type PmsCheckoutResultProjection,
   type PmsPendingActionCallbackApiRequest,
-  type PmsPendingActionOperation
+  type PmsPendingActionOperation,
+  type PmsPendingActionScopeRef
 } from './contracts.js';
 
 export interface PmsCheckoutProviderOptions {
@@ -381,8 +382,77 @@ function buildConfirmCallbackForwardEnvelope(input: {
   const platformPendingAction = input.action.pendingAction
     ? buildPlatformPendingActionCallback(input.action, actor, input.requestedAt)
     : undefined;
+  const dryRunIdentity: JsonRecord = {
+    mode: input.action.dryRunIdentity.mode,
+    idempotencyKey: input.action.dryRunIdentity.idempotencyKey,
+    requestFingerprint: input.action.dryRunIdentity.requestFingerprint,
+    idempotencyScope: 'checkout-dry-run-preview',
+    requestFingerprintScope: 'checkout-dry-run-preview'
+  };
+  const confirmIdentity: JsonRecord = {
+    mode: input.action.confirmIdentity.mode,
+    idempotencyKey: input.action.confirmIdentity.idempotencyKey,
+    requestFingerprint: input.action.confirmIdentity.requestFingerprint,
+    confirmMode: input.action.confirmIdentity.confirmMode,
+    idempotencyScope: 'checkout-confirm-command',
+    requestFingerprintScope: 'checkout-confirm-command'
+  };
+  const orchestrator: JsonRecord = {
+    toolName: PMS_CHECKOUT_CONFIRM_CALLBACK_HANDLER,
+    interaction: 'confirmCallback',
+    conversationOwner: 'adapter-feishu',
+    roomId: input.action.roomId,
+    ...(roomNumber ? { roomNumber } : {}),
+    ...(projectionTarget ? { target: projectionTargetToRecord(projectionTarget) } : {}),
+    pendingId: input.action.pendingId,
+    dryRunIdentity,
+    confirmIdentity,
+    callbackForwardingEnvelope: {
+      name: PMS_CHECKOUT_CONFIRM_CALLBACK_NAME,
+      version: PMS_CHECKOUT_CONFIRM_CALLBACK_VERSION,
+      providerKey: PMS_CHECKOUT_PROVIDER_KEY,
+      pendingId: input.action.pendingId,
+      actionId: PMS_CHECKOUT_CONFIRM_ACTION_ID,
+      sourceOwner: 'adapter-feishu',
+      targetOwner: 'pms-platform',
+      handler: PMS_CHECKOUT_CONFIRM_CALLBACK_HANDLER,
+      auth: {
+        type: 'bearer-token',
+        headerName: 'Authorization',
+        envName: PMS_PENDING_ACTION_CALLBACK_AUTH_ENV_NAME,
+        valueStoredInRepo: false
+      },
+      mapsTo: {
+        owner: 'pms-platform',
+        operation: 'pms_check_out',
+        mode: 'confirm'
+      }
+    },
+    calls: [
+      {
+        owner: 'pms-platform',
+        wrapper: 'pms-platform.pending_action.confirm',
+        operation: 'pms_check_out',
+        mode: 'confirm',
+        identity: 'confirmIdentity'
+      },
+      {
+        owner: 'adapter-feishu',
+        wrapper: 'adapter-feishu.checkout.project_result',
+        providerKey: PMS_CHECKOUT_PROVIDER_KEY,
+        projection: 'result-card'
+      }
+    ],
+    rejectionCases: [
+      'missing_platform_callback_auth',
+      'pending_consumed_or_stale',
+      'provider_or_action_mismatch',
+      'dry_run_identity_reused_for_confirm',
+      'pms_down_after_click'
+    ]
+  };
 
-  return ({
+  const envelope: JsonRecord = {
     contract: {
       schema: 'https://github.com/archpeng/pms-platform/contracts/schemas/pending-action-callback.schema.json',
       name: 'pms-platform-pending-action-callback',
@@ -390,7 +460,7 @@ function buildConfirmCallbackForwardEnvelope(input: {
       owner: 'pms-platform',
       status: 'adapter-runtime-forward'
     },
-    actor,
+    actor: actorToRecord(actor),
     source: 'adapter-feishu',
     reason: 'adapter-feishu validated and consumed a PMS checkout confirmation card action.',
     correlationId: input.action.correlationId,
@@ -407,69 +477,9 @@ function buildConfirmCallbackForwardEnvelope(input: {
       rawRefs: []
     },
     ...(platformPendingAction ? { platformPendingAction } : {}),
-    orchestrator: {
-      toolName: PMS_CHECKOUT_CONFIRM_CALLBACK_HANDLER,
-      interaction: 'confirmCallback',
-      conversationOwner: 'adapter-feishu',
-      roomId: input.action.roomId,
-      ...(roomNumber ? { roomNumber } : {}),
-      ...(projectionTarget ? { target: projectionTarget } : {}),
-      pendingId: input.action.pendingId,
-      dryRunIdentity: {
-        ...input.action.dryRunIdentity,
-        idempotencyScope: 'checkout-dry-run-preview',
-        requestFingerprintScope: 'checkout-dry-run-preview'
-      },
-      confirmIdentity: {
-        ...input.action.confirmIdentity,
-        idempotencyScope: 'checkout-confirm-command',
-        requestFingerprintScope: 'checkout-confirm-command'
-      },
-      callbackForwardingEnvelope: {
-        name: PMS_CHECKOUT_CONFIRM_CALLBACK_NAME,
-        version: PMS_CHECKOUT_CONFIRM_CALLBACK_VERSION,
-        providerKey: PMS_CHECKOUT_PROVIDER_KEY,
-        pendingId: input.action.pendingId,
-        actionId: PMS_CHECKOUT_CONFIRM_ACTION_ID,
-        sourceOwner: 'adapter-feishu',
-        targetOwner: 'pms-platform',
-        handler: PMS_CHECKOUT_CONFIRM_CALLBACK_HANDLER,
-        auth: {
-          type: 'bearer-token',
-          headerName: 'Authorization',
-          envName: PMS_PENDING_ACTION_CALLBACK_AUTH_ENV_NAME,
-          valueStoredInRepo: false
-        },
-        mapsTo: {
-          owner: 'pms-platform',
-          operation: 'pms_check_out',
-          mode: 'confirm'
-        }
-      },
-      calls: [
-        {
-          owner: 'pms-platform',
-          wrapper: 'pms-platform.pending_action.confirm',
-          operation: 'pms_check_out',
-          mode: 'confirm',
-          identity: 'confirmIdentity'
-        },
-        {
-          owner: 'adapter-feishu',
-          wrapper: 'adapter-feishu.checkout.project_result',
-          providerKey: PMS_CHECKOUT_PROVIDER_KEY,
-          projection: 'result-card'
-        }
-      ],
-      rejectionCases: [
-        'missing_platform_callback_auth',
-        'pending_consumed_or_stale',
-        'provider_or_action_mismatch',
-        'dry_run_identity_reused_for_confirm',
-        'pms_down_after_click'
-      ]
-    }
-  } as unknown) as JsonRecord;
+    orchestrator
+  };
+  return envelope;
 }
 
 function buildPlatformPendingActionCallback(
@@ -491,9 +501,9 @@ function buildPlatformPendingActionCallback(
     requestedAt,
     ...(action.pendingAction.cardPayloadRef ? { cardPayloadRef: action.pendingAction.cardPayloadRef } : {})
   };
-  return ({
+  const callback: JsonRecord = {
     operation: PMS_PENDING_ACTION_CONFIRM_OPERATION,
-    request,
+    request: pendingActionCallbackRequestToRecord(request),
     routing: {
       owner: 'pms-platform',
       auth: {
@@ -507,7 +517,8 @@ function buildPlatformPendingActionCallback(
         cancel: '/v1/pms/pending-actions/cancel'
       }
     }
-  } as unknown) as JsonRecord;
+  };
+  return callback;
 }
 
 async function postPlatformPendingActionCallback(input: {
@@ -565,9 +576,31 @@ function platformPendingActionRequestFromEnvelope(envelope: JsonRecord): {
   if (!request || !isPendingActionOperation(operation)) {
     return null;
   }
+  const pendingActionRef = stringField(request, 'pendingActionRef');
+  const actor = actorFromRecord(recordField(request, 'actor'));
+  const scope = pendingActionScopeFromRecord(recordField(request, 'scope'));
+  const clientToken = stringField(request, 'clientToken');
+  const requestFingerprint = stringField(request, 'requestFingerprint');
+  const correlationId = stringField(request, 'correlationId');
+  const requestedAt = stringField(request, 'requestedAt');
+  if (!pendingActionRef || !actor || !scope || !clientToken || !requestFingerprint || !correlationId || !requestedAt) {
+    return null;
+  }
+  const callbackRequest: PmsPendingActionCallbackApiRequest = {
+    operation,
+    pendingActionRef,
+    actor,
+    scope,
+    clientToken,
+    requestFingerprint,
+    correlationId,
+    requestedAt,
+    ...(optionalStringField(request, 'cardPayloadRef') ? { cardPayloadRef: optionalStringField(request, 'cardPayloadRef') } : {}),
+    ...(optionalStringField(request, 'reason') ? { reason: optionalStringField(request, 'reason') } : {})
+  };
   return {
     operation,
-    request: { ...request, operation } as unknown as PmsPendingActionCallbackApiRequest
+    request: callbackRequest
   };
 }
 
@@ -622,6 +655,54 @@ function actorFromRecord(actor: JsonRecord | undefined): PmsCheckoutActorRef | u
   };
 }
 
+function actorToRecord(actor: PmsCheckoutActorRef): JsonRecord {
+  return {
+    type: actor.type,
+    id: actor.id,
+    ...(actor.displayName ? { displayName: actor.displayName } : {})
+  };
+}
+
+function pendingActionScopeToRecord(scope: PmsPendingActionScopeRef): JsonRecord {
+  return {
+    propertyId: scope.propertyId,
+    channel: scope.channel,
+    ...(scope.tenantIdHash ? { tenantIdHash: scope.tenantIdHash } : {}),
+    ...(scope.chatIdHash ? { chatIdHash: scope.chatIdHash } : {}),
+    ...(scope.userIdHash ? { userIdHash: scope.userIdHash } : {})
+  };
+}
+
+function pendingActionCallbackRequestToRecord(request: PmsPendingActionCallbackApiRequest): JsonRecord {
+  return {
+    ...(request.operation ? { operation: request.operation } : {}),
+    pendingActionRef: request.pendingActionRef,
+    actor: actorToRecord(request.actor),
+    scope: pendingActionScopeToRecord(request.scope),
+    clientToken: request.clientToken,
+    requestFingerprint: request.requestFingerprint,
+    correlationId: request.correlationId,
+    requestedAt: request.requestedAt,
+    ...(request.cardPayloadRef ? { cardPayloadRef: request.cardPayloadRef } : {}),
+    ...(request.reason ? { reason: request.reason } : {})
+  };
+}
+
+function pendingActionScopeFromRecord(scope: JsonRecord | undefined): PmsPendingActionScopeRef | undefined {
+  const propertyId = stringField(scope ?? {}, 'propertyId');
+  const channel = stringField(scope ?? {}, 'channel');
+  if (!propertyId || (channel !== 'typed_card' && channel !== 'test')) {
+    return undefined;
+  }
+  return {
+    propertyId,
+    channel,
+    ...(optionalStringField(scope ?? {}, 'tenantIdHash') ? { tenantIdHash: optionalStringField(scope ?? {}, 'tenantIdHash') } : {}),
+    ...(optionalStringField(scope ?? {}, 'chatIdHash') ? { chatIdHash: optionalStringField(scope ?? {}, 'chatIdHash') } : {}),
+    ...(optionalStringField(scope ?? {}, 'userIdHash') ? { userIdHash: optionalStringField(scope ?? {}, 'userIdHash') } : {})
+  };
+}
+
 function projectionTargetFromRecord(value: JsonRecord | undefined) {
   const kind = stringField(value ?? {}, 'kind');
   const id = stringField(value ?? {}, 'id');
@@ -629,6 +710,13 @@ function projectionTargetFromRecord(value: JsonRecord | undefined) {
     return undefined;
   }
   return { kind, id };
+}
+
+function projectionTargetToRecord(target: { readonly kind: string; readonly id: string }): JsonRecord {
+  return {
+    kind: target.kind,
+    id: target.id
+  };
 }
 
 function statusText(status: { readonly occupancy: string; readonly cleaning: string; readonly sale: string }): string {

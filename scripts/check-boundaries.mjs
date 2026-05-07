@@ -30,6 +30,11 @@ const requiredAgentSnippets = [
   'Base writes remain managed/registry-bound and never PMS truth',
   'does not own Pi Agent runtime or LLM semantic routing',
   'does not own PMS workflow truth',
+  'README must name the active `Feishu -> adapter-feishu -> pms-agent-v2 -> pms-platform` chain',
+  '/health` must expose non-sensitive integration config state',
+  'Form webhook success and duplicate responses must not expose raw Feishu Base target IDs',
+  'explicit typed builders/parsers instead of unchecked `as unknown as` casts',
+  'single-responsibility helper extraction'
 ];
 
 function assert(condition, message) {

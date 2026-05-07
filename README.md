@@ -2,10 +2,11 @@
 
 `adapter-feishu` is a **standalone Feishu/Lark channel service**.
 
-Today it exposes three bounded integration paths:
+Today it exposes four bounded integration paths:
 
 ```text
 warning-agent -> adapter-feishu -> Feishu/Lark
+Feishu PMS natural-language turn -> adapter-feishu -> pms-agent-v2 -> pms-platform
 business payload -> POST /providers/form-webhook -> Feishu Base/Bitable record write
 pms-platform PMS pending-action/card payload -> adapter-feishu pms-checkout provider -> Feishu card/callback -> pms-platform pending-action callback
 ```
@@ -54,6 +55,8 @@ Boundary anchors frozen for this repo:
 - `POST /providers/form-webhook` for existing Feishu Base/Bitable record writes
 - managed `formKey` routing through server-side registry bindings for multi-form handoff
 - optional form-schema preflight via existing `formId`
+- PMS natural-language command turn forwarding to `pms-agent-v2`
+- typed PMS Agent approval-card delivery and callback transport to fixed PMS Platform pending-action routes
 
 ## What is out of scope
 
@@ -100,6 +103,8 @@ Current repo truth:
 - provider routing, bounded dedupe, and pending callback state are landed under `src/providers/**` and `src/state/**`
 - provider webhook, card-action dispatch, health routing, and `/providers/form-webhook` are landed under `src/server/**`
 - the first concrete provider path remains notify-first `warning-agent -> adapter-feishu -> Feishu/Lark`
+- natural-language PMS command turns are allowlist/dedupe guarded and forwarded to `pms-agent-v2`; `/health` exposes only non-sensitive PMS Agent config state
+- PMS Agent approval cards are rendered by adapter-feishu as typed cards, while confirm/cancel callbacks are forwarded to fixed `pms-platform` pending-action routes
 - `pms-checkout` is a provider-only PMS checkout card/callback surface: it renders dry-run/result cards, persists pending `pms.checkout.confirm` actions, validates card callbacks, and forwards typed confirmations only to fixed pms-platform pending-action endpoints; the adapter still does not execute PMS Core
 - the form path writes records into an **existing** Feishu Base/table through `bitable.appTableRecord.create`
 - managed form mode resolves `formKey` through `ADAPTER_FEISHU_FORM_REGISTRY_PATH`, maps business fields through `fieldMap`, injects `fixedFields`, and shields callers from raw target selection
@@ -160,11 +165,9 @@ Typical managed success shape:
   "clientToken": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
   "schemaValidated": true,
   "targetSource": "managed",
-  "target": {
-    "appToken": "bascnxxxxxxxxxxxx",
-    "tableId": "tblxxxxxxxxxxxx",
-    "formId": "formxxxxxxxxxxxx"
-  }
+  "targetConfigured": true,
+  "targetRefHash": "7f7d4d17e0fef4f5",
+  "rawTargetLogged": false
 }
 ```
 

@@ -10,6 +10,7 @@ import type { JsonRecord } from '../core/contracts.js';
 import type { ManagedFormBinding, ManagedFormRegistry } from '../forms/registry.js';
 import type { AlertDeduper, DedupeKeyInput } from '../state/dedupe.js';
 import type { TableWriteQueue } from '../state/tableWriteQueue.js';
+import { duplicateIgnoredResponse, redactedTargetResponseFields } from './formWebhookResponse.js';
 
 const FORM_WEBHOOK_DEDUPE_PROVIDER_KEY = 'form-webhook';
 const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -90,15 +91,15 @@ export async function dispatchFormWebhookRequest(
     ...targetResolution.errors
   ];
 
+  const target = targetResolution.target;
+  const targetSource = targetResolution.targetSource;
   const deliveryKind = targetResolution.deliveryKind ?? 'base_record';
-  const hasRequiredTarget = Boolean(targetResolution.target && targetResolution.targetSource);
+  const hasRequiredTarget = Boolean(target && targetSource);
 
-  if (errors.length > 0 || !clientToken || !fields || !targetResolution.fields || !hasRequiredTarget) {
+  if (errors.length > 0 || !clientToken || !fields || !targetResolution.fields || !hasRequiredTarget || !target || !targetSource) {
     return invalidPayloadResponse(errors);
   }
 
-  const target = targetResolution.target;
-  const targetSource = targetResolution.targetSource;
   const effectiveValidateFormSchema = targetResolution.validateFormSchema;
   const resolvedFields = targetResolution.fields;
   const dedupeInput: DedupeKeyInput = {
@@ -108,10 +109,14 @@ export async function dispatchFormWebhookRequest(
 
   const executeRequest = async (): Promise<FormWebhookResponse> => {
     if (deps.deduper?.has(dedupeInput)) {
-      return duplicateIgnoredResponse(clientToken, targetSource ?? 'managed', target as FeishuFormDefaultTargetConfig);
+      return duplicateIgnoredResponse({
+        clientToken,
+        targetSource,
+        target
+      });
     }
 
-    const recordTarget = target as FeishuFormDefaultTargetConfig;
+    const recordTarget = target;
     let recordFields = resolvedFields;
 
     if (effectiveValidateFormSchema) {
@@ -154,8 +159,7 @@ export async function dispatchFormWebhookRequest(
         ...(result.recordId ? { recordId: result.recordId } : {}),
         clientToken,
         ...(effectiveValidateFormSchema ? { schemaValidated: true } : {}),
-        targetSource,
-        target: recordTarget
+        ...redactedTargetResponseFields(targetSource, recordTarget)
       }
     };
   };
@@ -651,23 +655,6 @@ function invalidPayloadResponse(errors: string[]): FormWebhookResponse {
       code: 400,
       message: 'invalid_payload',
       errors
-    }
-  };
-}
-
-function duplicateIgnoredResponse(
-  clientToken: string,
-  targetSource: 'default' | 'override' | 'managed',
-  target: FeishuFormDefaultTargetConfig
-): FormWebhookResponse {
-  return {
-    statusCode: 202,
-    body: {
-      code: 0,
-      status: 'duplicate_ignored',
-      clientToken,
-      targetSource,
-      target
     }
   };
 }

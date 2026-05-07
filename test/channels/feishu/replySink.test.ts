@@ -89,4 +89,36 @@ describe('createReplySink', () => {
       externalRef: 'msg-2'
     });
   });
+
+  it('updates an existing interactive card without sending a new message', async () => {
+    const client = {
+      sendText: vi.fn().mockResolvedValue({ messageId: 'msg-1' }),
+      sendCard: vi.fn().mockResolvedValue({ messageId: 'msg-2' }),
+      updateCard: vi.fn().mockResolvedValue({ messageId: 'om-card-1' })
+    };
+    const sink = createReplySink(client);
+
+    const result = await sink.updateNotification({
+      providerKey: 'pms-agent-v2',
+      notificationId: 'notif-terminal',
+      occurredAt: '2026-05-07T08:00:00.000Z',
+      title: '预订草稿已确认',
+      summary: 'PMS pending-action 已确认。',
+      target: { channel: 'feishu', chatId: 'oc-chat-1', messageId: 'om-card-1' },
+      rawPayload: { status: 'confirmed' }
+    });
+
+    expect(client.updateCard).toHaveBeenCalledWith(
+      'om-card-1',
+      expect.objectContaining({
+        header: expect.objectContaining({ template: 'blue' })
+      })
+    );
+    expect(client.sendCard).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      status: 'delivered',
+      externalRef: 'om-card-1',
+      message: 'interactive card updated'
+    });
+  });
 });

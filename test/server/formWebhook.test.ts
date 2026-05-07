@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import { createAlertDeduper } from '../../src/state/dedupe.js';
@@ -6,6 +7,29 @@ import { dispatchFormWebhookRequest } from '../../src/server/formWebhook.js';
 import { parseManagedFormRegistry, type ManagedFormRegistry } from '../../src/forms/registry.js';
 
 const validClientToken = '9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d';
+
+function redactedTargetFields(
+  targetSource: 'default' | 'override' | 'managed',
+  target: { appToken: string; tableId: string; formId?: string }
+) {
+  return {
+    targetSource,
+    targetConfigured: true,
+    targetRefHash: createHash('sha256')
+      .update(`${target.appToken}:${target.tableId}:${target.formId ?? ''}`)
+      .digest('hex')
+      .slice(0, 16),
+    rawTargetLogged: false
+  };
+}
+
+function expectNoRawTargetInResponse(response: unknown, rawValues: readonly (string | undefined)[]): void {
+  const serialized = JSON.stringify(response);
+  for (const rawValue of rawValues) {
+    if (!rawValue) continue;
+    expect(serialized).not.toContain(rawValue);
+  }
+}
 
 function createManagedFormRegistry(overrides: Partial<ManagedFormRegistry['forms'][string]> = {}): ManagedFormRegistry {
   return {
@@ -246,14 +270,14 @@ describe('dispatchFormWebhookRequest', () => {
         status: 'record_created',
         recordId: 'rec_1',
         clientToken: validClientToken,
-        targetSource: 'default',
-        target: {
+        ...redactedTargetFields('default', {
           appToken: 'app_token_default',
           tableId: 'tbl_default',
           formId: 'form_default'
-        }
+        })
       }
     });
+    expectNoRawTargetInResponse(response, ['app_token_default', 'tbl_default', 'form_default']);
   });
 
   it('writes managed formKey requests through registry target, fieldMap, and fixedFields without caller target', async () => {
@@ -306,14 +330,14 @@ describe('dispatchFormWebhookRequest', () => {
         status: 'record_created',
         recordId: 'rec_managed',
         clientToken: validClientToken,
-        targetSource: 'managed',
-        target: {
+        ...redactedTargetFields('managed', {
           appToken: 'app_token_managed',
           tableId: 'tbl_managed',
           formId: 'form_managed'
-        }
+        })
       }
     });
+    expectNoRawTargetInResponse(response, ['app_token_managed', 'tbl_managed', 'form_managed']);
   });
 
   it('lets managed mode reuse schema validation before record creation', async () => {
@@ -746,9 +770,13 @@ describe('dispatchFormWebhookRequest', () => {
         recordId: `rec_${routeCase.formKey}`,
         clientToken: validClientToken,
         schemaValidated: true,
-        targetSource: 'managed',
-        target: registry.forms[routeCase.formKey].target
+        ...redactedTargetFields('managed', registry.forms[routeCase.formKey].target)
       });
+      expectNoRawTargetInResponse(response, [
+        registry.forms[routeCase.formKey].target.appToken,
+        registry.forms[routeCase.formKey].target.tableId,
+        registry.forms[routeCase.formKey].target.formId ?? ''
+      ].filter(Boolean));
     }
   });
 
@@ -923,10 +951,14 @@ describe('dispatchFormWebhookRequest', () => {
         code: 0,
         status: 'duplicate_ignored',
         clientToken: validClientToken,
-        targetSource: 'managed',
-        target: registry.forms['pms-checkout'].target
+        ...redactedTargetFields('managed', registry.forms['pms-checkout'].target)
       }
     });
+    expectNoRawTargetInResponse(second, [
+      registry.forms['pms-checkout'].target.appToken,
+      registry.forms['pms-checkout'].target.tableId,
+      registry.forms['pms-checkout'].target.formId ?? ''
+    ].filter(Boolean));
   });
 
   it('writes the PMS operation request form through the managed Base record path', async () => {
@@ -1045,12 +1077,11 @@ describe('dispatchFormWebhookRequest', () => {
         status: 'record_created',
         recordId: 'rec_2',
         clientToken: validClientToken,
-        targetSource: 'override',
-        target: {
+        ...redactedTargetFields('override', {
           appToken: 'app_token_override',
           tableId: 'tbl_override',
           formId: 'form_override'
-        }
+        })
       }
     });
     expect(second).toEqual({
@@ -1059,14 +1090,15 @@ describe('dispatchFormWebhookRequest', () => {
         code: 0,
         status: 'duplicate_ignored',
         clientToken: validClientToken,
-        targetSource: 'override',
-        target: {
+        ...redactedTargetFields('override', {
           appToken: 'app_token_override',
           tableId: 'tbl_override',
           formId: 'form_override'
-        }
+        })
       }
     });
+    expectNoRawTargetInResponse(first, ['app_token_override', 'tbl_override', 'form_override']);
+    expectNoRawTargetInResponse(second, ['app_token_override', 'tbl_override', 'form_override']);
   });
 
   it('rejects explicit targets when override is disabled', async () => {
@@ -1339,14 +1371,14 @@ describe('dispatchFormWebhookRequest', () => {
         recordId: 'rec_form_alias',
         clientToken: validClientToken,
         schemaValidated: true,
-        targetSource: 'default',
-        target: {
+        ...redactedTargetFields('default', {
           appToken: 'app_token_default',
           tableId: 'tbl_default',
           formId: 'form_default'
-        }
+        })
       }
     });
+    expectNoRawTargetInResponse(response, ['app_token_default', 'tbl_default', 'form_default']);
   });
 
   it('honestly rejects schema validation when no formId is available', async () => {

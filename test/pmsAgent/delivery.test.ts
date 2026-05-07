@@ -215,6 +215,126 @@ describe('pmsAgentResultNotifications', () => {
     expect(request.tenantId).toBeUndefined();
   });
 
+  it('updates the original PMS approval card to a terminal no-action state after confirmed callback', async () => {
+    const pendingStore = createPendingStore({ ttlMs: 60_000 });
+    const [notification] = pmsAgentResultNotifications({ result: approvalCard, turn, pendingStore, now: () => '2026-05-06T12:00:01.000Z' });
+    const action = notification.actions?.[0];
+    const updateNotification = vi.fn().mockResolvedValue({ providerKey: PMS_AGENT_PROVIDER_KEY, deliveryId: 'delivery-terminal', channel: 'feishu', status: 'delivered' });
+    const sendNotification = vi.fn();
+    const callbackForwarder = {
+      forwardCallback: vi.fn().mockResolvedValue({
+        statusCode: 202,
+        body: {
+          ok: true,
+          mutationStatus: 'deferred',
+          idempotencyStatus: 'confirmed',
+          pendingAction: { workflowType: 'reservation', status: 'confirmed', mutationStatus: 'deferred' }
+        }
+      })
+    };
+
+    const response = await dispatchCardActionRequest({
+      method: 'POST',
+      pathname: '/providers/card-action',
+      rawBody: JSON.stringify({
+        token: 'verification-token-1',
+        open_message_id: 'om-card-1',
+        action: { value: action?.payload },
+        operator: { open_id: 'ou_1' }
+      })
+    }, {
+      providerRouter: createProviderRouter(createProviderRegistry({ allowedProviderKeys: ['warning-agent'] }), {}),
+      pendingStore,
+      replySink: { sendNotification, updateNotification },
+      callbackForwarder,
+      verificationToken: 'verification-token-1',
+      now: () => '2026-05-06T12:00:02.000Z'
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(updateNotification).toHaveBeenCalledWith(expect.objectContaining({
+      title: '预订草稿已确认',
+      summary: expect.stringContaining('pending-action 已确认'),
+      target: expect.objectContaining({ messageId: 'om-card-1' }),
+      facts: expect.arrayContaining([
+        { label: '状态', value: 'confirmed' },
+        { label: '持久化语义', value: 'deferred' }
+      ])
+    }));
+    expect(updateNotification.mock.calls[0][0].actions).toBeUndefined();
+    expect(sendNotification).not.toHaveBeenCalled();
+    expect(pendingStore.get(PMS_AGENT_PENDING_ACTION_PROVIDER_KEY, String(action?.payload?.pendingId))).toBeUndefined();
+  });
+
+  it('does not consume or update PMS approval cards when platform rejects the callback body', async () => {
+    const pendingStore = createPendingStore({ ttlMs: 60_000 });
+    const [notification] = pmsAgentResultNotifications({ result: approvalCard, turn, pendingStore, now: () => '2026-05-06T12:00:01.000Z' });
+    const action = notification.actions?.[0];
+    const updateNotification = vi.fn();
+    const callbackForwarder = {
+      forwardCallback: vi.fn().mockResolvedValue({ statusCode: 200, body: { ok: false, errors: [{ code: 'PENDING_ACTION_NOT_ACTIVE' }] } })
+    };
+
+    const response = await dispatchCardActionRequest({
+      method: 'POST',
+      pathname: '/providers/card-action',
+      rawBody: JSON.stringify({
+        token: 'verification-token-1',
+        action: { value: action?.payload },
+        operator: { open_id: 'ou_1' }
+      })
+    }, {
+      providerRouter: createProviderRouter(createProviderRegistry({ allowedProviderKeys: ['warning-agent'] }), {}),
+      pendingStore,
+      replySink: { sendNotification: vi.fn(), updateNotification },
+      callbackForwarder,
+      verificationToken: 'verification-token-1',
+      now: () => '2026-05-06T12:00:02.000Z'
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(updateNotification).not.toHaveBeenCalled();
+    expect(pendingStore.get(PMS_AGENT_PENDING_ACTION_PROVIDER_KEY, String(action?.payload?.pendingId))).toBeDefined();
+  });
+
+  it('sends a terminal fallback message when Feishu card update fails after platform confirmation', async () => {
+    const pendingStore = createPendingStore({ ttlMs: 60_000 });
+    const [notification] = pmsAgentResultNotifications({ result: approvalCard, turn, pendingStore, now: () => '2026-05-06T12:00:01.000Z' });
+    const action = notification.actions?.[0];
+    const sendNotification = vi.fn().mockResolvedValue({ providerKey: PMS_AGENT_PROVIDER_KEY, deliveryId: 'delivery-fallback', channel: 'feishu', status: 'delivered' });
+    const updateNotification = vi.fn().mockRejectedValue(new Error('feishu card patch failed'));
+    const callbackForwarder = {
+      forwardCallback: vi.fn().mockResolvedValue({
+        statusCode: 202,
+        body: { ok: true, mutationStatus: 'deferred', pendingAction: { status: 'confirmed', mutationStatus: 'deferred' } }
+      })
+    };
+
+    const response = await dispatchCardActionRequest({
+      method: 'POST',
+      pathname: '/providers/card-action',
+      rawBody: JSON.stringify({
+        token: 'verification-token-1',
+        open_message_id: 'om-card-1',
+        action: { value: action?.payload },
+        operator: { open_id: 'ou_1' }
+      })
+    }, {
+      providerRouter: createProviderRouter(createProviderRegistry({ allowedProviderKeys: ['warning-agent'] }), {}),
+      pendingStore,
+      replySink: { sendNotification, updateNotification },
+      callbackForwarder,
+      verificationToken: 'verification-token-1',
+      now: () => '2026-05-06T12:00:02.000Z'
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(updateNotification).toHaveBeenCalledOnce();
+    expect(sendNotification).toHaveBeenCalledWith(expect.objectContaining({ title: '预订草稿已确认' }));
+    expect(sendNotification.mock.calls[0][0].actions).toBeUndefined();
+    expect(pendingStore.get(PMS_AGENT_PENDING_ACTION_PROVIDER_KEY, String(action?.payload?.pendingId))).toBeUndefined();
+  });
+
   it('posts PMS Agent approval-card callbacks to fixed platform routes with typed refs', async () => {
     const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 202 }));
     const callbackForwarder = createPmsCheckoutPlatformPendingActionCallbackForwarder({

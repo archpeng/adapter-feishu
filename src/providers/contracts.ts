@@ -11,6 +11,7 @@ import type { PendingStore } from '../state/pendingStore.js';
 
 export interface ProviderNotificationSink {
   sendNotification(notification: ProviderNotification): Promise<ProviderDeliveryResult>;
+  updateNotification?(notification: ProviderNotification): Promise<ProviderDeliveryResult>;
 }
 
 export interface ProviderCallbackForwardRequest {

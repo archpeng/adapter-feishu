@@ -60,6 +60,28 @@ describe('createFeishuClient', () => {
     });
   });
 
+  it('patches an existing interactive card by message id', async () => {
+    fetchImpl
+      .mockResolvedValueOnce(createResponse({ code: 0, tenant_access_token: 'token-1', expire: 7200 }))
+      .mockResolvedValueOnce(createResponse({ code: 0 }));
+
+    const client = createFeishuClient({
+      appId: 'app-id',
+      appSecret: 'app-secret',
+      baseUrl: 'https://feishu.test',
+      fetchImpl
+    });
+
+    await client.updateCard('om_card_1', { header: { title: '已确认' }, elements: [] });
+
+    expect(fetchImpl.mock.calls[1]?.[0]).toBe('https://feishu.test/open-apis/im/v1/messages/om_card_1');
+    const request = fetchImpl.mock.calls[1]?.[1];
+    expect(request).toMatchObject({ method: 'PATCH' });
+    expect(JSON.parse(String(request?.body))).toEqual({
+      content: JSON.stringify({ header: { title: '已确认' }, elements: [] })
+    });
+  });
+
   it('logs redacted target shape before sending without raw receive ids', async () => {
     fetchImpl
       .mockResolvedValueOnce(createResponse({ code: 0, tenant_access_token: 'token-1', expire: 7200 }))

@@ -81,7 +81,7 @@ Rules:
 }
 ```
 
-Successful managed writes include `"targetSource": "managed"` in the response.
+Successful managed writes include `"targetSource": "managed"`, `"targetConfigured": true`, `"targetRefHash": "<sha256-prefix>"`, and `"rawTargetLogged": false` in the response. They do not return raw `appToken`, `tableId`, or `formId`.
 
 ## Validation
 
