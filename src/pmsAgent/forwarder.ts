@@ -94,8 +94,7 @@ function isApprovalCard(value: unknown): boolean {
   const ref = value.ref;
   return isRecord(ref)
     && ref.type === 'pms_pending_action'
-    && nonEmptyString(ref.tenantId)
-    && nonEmptyString(ref.pendingActionId)
+    && nonEmptyString(ref.pendingActionRef ?? ref.pendingActionId)
     && ref.action === 'reservation_confirm'
     && nonEmptyString(value.title)
     && nonEmptyString(value.summary)

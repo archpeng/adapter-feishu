@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { dispatchCardActionRequest } from '../../src/server/cardAction.js';
 import { pmsAgentResultNotifications } from '../../src/pmsAgent/delivery.js';
+import { createPmsCheckoutPlatformPendingActionCallbackForwarder } from '../../src/providers/pms-checkout/index.js';
 import {
   PMS_AGENT_PENDING_ACTION_ID,
   PMS_AGENT_PENDING_ACTION_PROVIDER_KEY,
@@ -30,7 +31,11 @@ const approvalCard: AgentResult = {
     ref: {
       type: 'pms_pending_action',
       tenantId: 'tenant_1',
-      pendingActionId: 'pending_1',
+      pendingActionId: 'pending-action-legacy-1',
+      pendingActionRef: 'pending-action-1',
+      cardPayloadRef: 'card-payload-1',
+      quoteRef: 'quote-1',
+      propertyId: 'property-small-hotel',
       action: 'reservation_confirm'
     },
     title: '确认预订',
@@ -65,6 +70,12 @@ describe('pmsAgentResultNotifications', () => {
       actionId: PMS_AGENT_PENDING_ACTION_ID,
       target: turn.target,
       payload: {
+        pendingAction: {
+          pendingActionRef: 'pending-action-1',
+          cardPayloadRef: 'card-payload-1',
+          quoteRef: 'quote-1',
+          propertyId: 'property-small-hotel'
+        },
         callbackOwner: 'adapter-feishu',
         targetOwner: 'pms-platform',
         naturalLanguageConfirmAllowed: false
@@ -110,6 +121,15 @@ describe('pmsAgentResultNotifications', () => {
         source: 'adapter-feishu',
         platformPendingAction: expect.objectContaining({
           operation: 'pms.pending_action.confirm',
+          request: expect.objectContaining({
+            operation: 'pms.pending_action.confirm',
+            pendingActionRef: 'pending-action-1',
+            cardPayloadRef: 'card-payload-1',
+            scope: expect.objectContaining({
+              propertyId: 'property-small-hotel',
+              channel: 'typed_card'
+            })
+          }),
           routing: expect.objectContaining({ owner: 'pms-platform' })
         }),
         orchestrator: expect.objectContaining({
@@ -119,5 +139,57 @@ describe('pmsAgentResultNotifications', () => {
         })
       })
     }));
+    const request = callbackForwarder.forwardCallback.mock.calls[0][0].envelope.platformPendingAction.request;
+    expect(request.pendingActionId).toBeUndefined();
+    expect(request.tenantId).toBeUndefined();
+  });
+
+  it('posts PMS Agent approval-card callbacks to fixed platform routes with typed refs', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 202 }));
+    const callbackForwarder = createPmsCheckoutPlatformPendingActionCallbackForwarder({
+      baseUrl: 'http://127.0.0.1:8791',
+      token: 'platform-token-1',
+      fetchImpl
+    });
+    const pendingStore = createPendingStore({ ttlMs: 60_000 });
+    const [notification] = pmsAgentResultNotifications({ result: approvalCard, turn, pendingStore, now: () => '2026-05-06T12:00:01.000Z' });
+    const action = notification.actions?.[0];
+
+    const response = await dispatchCardActionRequest({
+      method: 'POST',
+      pathname: '/providers/card-action',
+      rawBody: JSON.stringify({
+        token: 'verification-token-1',
+        action: { value: action?.payload },
+        operator: { open_id: 'ou_1' }
+      })
+    }, {
+      providerRouter: createProviderRouter(createProviderRegistry({ allowedProviderKeys: ['warning-agent'] }), {}),
+      pendingStore,
+      replySink: { sendNotification: vi.fn() },
+      callbackForwarder,
+      verificationToken: 'verification-token-1',
+      now: () => '2026-05-06T12:00:02.000Z'
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'http://127.0.0.1:8791/v1/pms/pending-actions/confirm',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({ authorization: 'Bearer platform-token-1' })
+      })
+    );
+    const body = JSON.parse(String(fetchImpl.mock.calls[0][1].body));
+    expect(body).toMatchObject({
+      operation: 'pms.pending_action.confirm',
+      pendingActionRef: 'pending-action-1',
+      cardPayloadRef: 'card-payload-1',
+      scope: {
+        propertyId: 'property-small-hotel',
+        channel: 'typed_card'
+      }
+    });
+    expect(body.pendingActionId).toBeUndefined();
   });
 });

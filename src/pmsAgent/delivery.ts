@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import type { JsonRecord, ProviderAction, ProviderNotification } from '../core/contracts.js';
 import type { ProviderCallbackForwarder, ProviderExecutionResult } from '../providers/contracts.js';
 import type { PendingActionRecord, PendingStore } from '../state/pendingStore.js';
-import type { InboundTurn } from '../core/contracts.js';
+import type { DeliveryTarget, InboundTurn } from '../core/contracts.js';
 import {
   PMS_AGENT_PENDING_ACTION_ID,
   PMS_AGENT_PENDING_ACTION_PROVIDER_KEY,
@@ -68,23 +68,22 @@ export async function handlePmsAgentPendingAction(input: {
   const operation = operationFromCallback(input.turn.callback?.value ?? {});
   if (!operation) return failed('invalid_pms_agent_pending_action');
   if (!input.callbackForwarder) return failed('pms_agent_pending_action_callback_forwarder_required');
-  const pendingAction = recordField(input.pendingRecord.payload, 'pendingAction');
-  const pendingActionId = stringField(pendingAction, 'pendingActionId');
-  const tenantId = stringField(pendingAction, 'tenantId');
-  if (!pendingActionId || !tenantId) return failed('missing_pms_agent_pending_action_ref');
+  const pendingAction = pendingActionFromRecord(recordField(input.pendingRecord.payload, 'pendingAction'));
+  if (!pendingAction) return failed('missing_pms_agent_pending_action_ref');
 
   const correlationId = stringField(input.turn.callback?.value, 'correlationId')
     ?? stringField(input.pendingRecord.payload, 'correlationId')
     ?? `pms-agent:${input.pendingRecord.pendingId}`;
   const request: JsonRecord = {
     operation,
-    pendingActionId,
-    tenantId,
+    pendingActionRef: pendingAction.pendingActionRef,
     actor: actorFromTurn(input.turn),
+    scope: pendingActionScope(input.turn, input.pendingRecord.target, pendingAction.propertyId),
     clientToken: `${operation}:${input.pendingRecord.pendingId}`,
     requestFingerprint: `fingerprint:${operation}:${input.pendingRecord.pendingId}`,
     correlationId,
     requestedAt: input.turn.receivedAt,
+    ...(pendingAction.cardPayloadRef ? { cardPayloadRef: pendingAction.cardPayloadRef } : {}),
     ...(operation === PMS_AGENT_CANCEL_OPERATION ? { reason: '用户点击飞书 PMS approval card 取消按钮。' } : {})
   };
 
@@ -153,8 +152,10 @@ function approvalCardNotification(input: {
   readonly pendingStore: PendingStore;
   readonly now: () => string;
 }, card: PmsApprovalCard): ProviderNotification {
-  const correlationId = `pms-agent:${hashRedacted(`${card.ref.tenantId}:${card.ref.pendingActionId}`)}`;
-  const pendingId = `pms-agent-${hashRedacted(`${card.ref.tenantId}:${card.ref.pendingActionId}`)}`;
+  const pendingAction = pendingActionFromRecord(card.ref as unknown as JsonRecord);
+  const pendingRefForHash = pendingAction?.pendingActionRef ?? 'missing-pending-action-ref';
+  const correlationId = `pms-agent:${hashRedacted(`${pendingRefForHash}:${pendingAction?.cardPayloadRef ?? ''}`)}`;
+  const pendingId = `pms-agent-${hashRedacted(`${pendingRefForHash}:${pendingAction?.cardPayloadRef ?? ''}`)}`;
   const pendingRecord = input.pendingStore.put({
     providerKey: PMS_AGENT_PENDING_ACTION_PROVIDER_KEY,
     pendingId,
@@ -165,7 +166,7 @@ function approvalCardNotification(input: {
       providerKey: PMS_AGENT_PENDING_ACTION_PROVIDER_KEY,
       actionId: PMS_AGENT_PENDING_ACTION_ID,
       correlationId,
-      pendingAction: card.ref as unknown as JsonRecord,
+      pendingAction: pendingAction ? pendingActionToRecord(pendingAction) : card.ref as unknown as JsonRecord,
       callbackOwner: 'adapter-feishu',
       targetOwner: 'pms-platform',
       naturalLanguageConfirmAllowed: false,
@@ -174,8 +175,9 @@ function approvalCardNotification(input: {
     metadata: {
       pendingKind: 'pms-agent-v2.pending-action-card.v1',
       correlationId,
-      pendingActionIdHash: hashRedacted(card.ref.pendingActionId),
-      tenantIdHash: hashRedacted(card.ref.tenantId)
+      pendingActionRefHash: hashRedacted(pendingRefForHash),
+      ...(pendingAction?.cardPayloadRef ? { cardPayloadRefHash: hashRedacted(pendingAction.cardPayloadRef) } : {}),
+      ...(card.ref.tenantId ? { tenantIdHash: hashRedacted(card.ref.tenantId) } : {})
     }
   });
 
@@ -188,8 +190,9 @@ function approvalCardNotification(input: {
     rawPayload: {
       source: PMS_AGENT_PROVIDER_KEY,
       resultType: 'approval_card',
-      pendingActionIdHash: hashRedacted(card.ref.pendingActionId),
-      tenantIdHash: hashRedacted(card.ref.tenantId),
+      pendingActionRefHash: hashRedacted(pendingRefForHash),
+      ...(pendingAction?.cardPayloadRef ? { cardPayloadRefHash: hashRedacted(pendingAction.cardPayloadRef) } : {}),
+      ...(card.ref.tenantId ? { tenantIdHash: hashRedacted(card.ref.tenantId) } : {}),
       rawRefsLogged: false
     },
     metadata: {
@@ -232,6 +235,46 @@ function cardAction(pendingId: string, correlationId: string, label: string, ope
 function operationFromCallback(value: JsonRecord): PmsAgentOperation | undefined {
   const operation = stringField(value, 'operation');
   return operation === PMS_AGENT_CONFIRM_OPERATION || operation === PMS_AGENT_CANCEL_OPERATION ? operation : undefined;
+}
+
+interface PmsAgentPlatformPendingActionRef {
+  pendingActionRef: string;
+  cardPayloadRef?: string;
+  quoteRef?: string;
+  propertyId: string;
+}
+
+function pendingActionFromRecord(record: JsonRecord | undefined): PmsAgentPlatformPendingActionRef | undefined {
+  const pendingActionRef = stringField(record, 'pendingActionRef') ?? stringField(record, 'pendingActionId');
+  const cardPayloadRef = stringField(record, 'cardPayloadRef');
+  const quoteRef = stringField(record, 'quoteRef');
+  const propertyId = stringField(record, 'propertyId') ?? 'property-small-hotel';
+  if (!pendingActionRef) return undefined;
+  return {
+    pendingActionRef,
+    ...(cardPayloadRef ? { cardPayloadRef } : {}),
+    ...(quoteRef ? { quoteRef } : {}),
+    propertyId
+  };
+}
+
+function pendingActionToRecord(pendingAction: PmsAgentPlatformPendingActionRef): JsonRecord {
+  return {
+    pendingActionRef: pendingAction.pendingActionRef,
+    propertyId: pendingAction.propertyId,
+    ...(pendingAction.cardPayloadRef ? { cardPayloadRef: pendingAction.cardPayloadRef } : {}),
+    ...(pendingAction.quoteRef ? { quoteRef: pendingAction.quoteRef } : {})
+  };
+}
+
+function pendingActionScope(turn: InboundTurn, target: DeliveryTarget | undefined, propertyId: string): JsonRecord {
+  return {
+    propertyId,
+    channel: 'typed_card',
+    ...(turn.actor?.tenantKey ? { tenantIdHash: hashRedacted(turn.actor.tenantKey) } : {}),
+    ...(target?.chatId ?? turn.target.chatId ? { chatIdHash: hashRedacted(target?.chatId ?? turn.target.chatId ?? '') } : {}),
+    ...(turn.actor?.userId || turn.actor?.openId ? { userIdHash: hashRedacted(turn.actor.userId ?? turn.actor.openId ?? '') } : {})
+  };
 }
 
 function actorFromTurn(turn: InboundTurn): JsonRecord {

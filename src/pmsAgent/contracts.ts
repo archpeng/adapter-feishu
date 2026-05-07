@@ -25,8 +25,12 @@ export interface FeishuTurnInput {
 
 export interface PmsPendingActionRef {
   type: 'pms_pending_action';
-  tenantId: string;
-  pendingActionId: string;
+  tenantId?: string;
+  pendingActionId?: string;
+  pendingActionRef?: string;
+  cardPayloadRef?: string;
+  quoteRef?: string;
+  propertyId?: string;
   action: 'reservation_confirm';
   expiresAt?: string;
 }
