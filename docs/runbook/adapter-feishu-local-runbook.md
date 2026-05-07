@@ -102,7 +102,7 @@ When enabled, provider pushes to `/providers/webhook` must send either:
 The active PMS path is:
 
 ```text
-adapter-feishu -> ai-conversation -> pms-platform
+adapter-feishu -> pms-agent-v2 -> pms-platform
 ```
 
 Typed-card callbacks are forwarded only to fixed pms-platform pending-action endpoints. Configure:

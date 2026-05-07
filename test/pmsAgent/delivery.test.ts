@@ -45,6 +45,38 @@ const approvalCard: AgentResult = {
   }
 };
 
+const reservationGroupApprovalCard: AgentResult = {
+  type: 'approval_card',
+  card: {
+    type: 'pms_pending_action_card',
+    ref: {
+      type: 'pms_pending_action',
+      tenantId: 'tenant_1',
+      pendingActionId: 'pending-action-legacy-group-1',
+      pendingActionRef: 'pending-action-group-1',
+      cardPayloadRef: 'card-payload-group-1',
+      quoteRef: 'quote-group-1',
+      propertyId: 'property-small-hotel',
+      action: 'reservation_confirm'
+    },
+    title: '确认多房预订',
+    summary: '请核对多房选择后确认。',
+    confirmLabel: '确认',
+    cancelLabel: '取消',
+    reservationGroup: {
+      guestDisplayName: 'Group Guest',
+      arrivalDate: '2026-05-07',
+      departureDate: '2026-05-09',
+      quantity: 2,
+      selections: [
+        { roomId: 'room-1001', roomNumber: '1001', roomTypeId: 'villa-garden', roomType: '花园别墅' },
+        { roomId: 'room-a2', roomNumber: 'A2', roomTypeId: 'villa-garden', roomType: '花园别墅' }
+      ],
+      quoteStatus: 'pricingUnsupported'
+    }
+  }
+};
+
 const variants: AgentResult[] = [
   { type: 'text', text: '今晚可订。' },
   { type: 'refusal', reason: 'policy', message: '该操作需要审批。' },
@@ -81,6 +113,45 @@ describe('pmsAgentResultNotifications', () => {
         naturalLanguageConfirmAllowed: false
       }
     });
+  });
+
+  it('renders PMS Agent reservation-group approval cards without exposing raw PMS refs', () => {
+    const pendingStore = createPendingStore({ ttlMs: 60_000 });
+    const [notification] = pmsAgentResultNotifications({
+      result: reservationGroupApprovalCard,
+      turn,
+      pendingStore,
+      now: () => '2026-05-06T12:00:01.000Z'
+    });
+
+    expect(notification).toMatchObject({
+      providerKey: PMS_AGENT_PROVIDER_KEY,
+      title: '确认多房预订',
+      bodyMarkdown: expect.stringContaining('PMS 当前未提供多房预订价格'),
+      facts: [
+        { label: '客人', value: 'Group Guest' },
+        { label: '入住日期', value: '2026-05-07' },
+        { label: '离店日期', value: '2026-05-09' },
+        { label: '房间数量', value: '2' },
+        { label: '房间 1', value: '1001 / 花园别墅' },
+        { label: '房间 2', value: 'A2 / 花园别墅' },
+        { label: '报价状态', value: 'PMS 暂不提供价格' }
+      ],
+      rawPayload: expect.objectContaining({
+        reservationGroupCard: true,
+        quoteStatus: 'pricingUnsupported',
+        rawRefsLogged: false
+      })
+    });
+    expect(notification.actions).toEqual([
+      expect.objectContaining({ payload: expect.objectContaining({ operation: 'pms.pending_action.confirm' }) }),
+      expect.objectContaining({ payload: expect.objectContaining({ operation: 'pms.pending_action.cancel' }) })
+    ]);
+    const visiblePayload = JSON.stringify(notification);
+    expect(visiblePayload).not.toContain('pending-action-group-1');
+    expect(visiblePayload).not.toContain('card-payload-group-1');
+    expect(visiblePayload).not.toContain('quote-group-1');
+    expect(visiblePayload).not.toContain('￥');
   });
 
   it('forwards PMS approval-card clicks through the adapter-owned pending-action callback path', async () => {
@@ -185,11 +256,67 @@ describe('pmsAgentResultNotifications', () => {
       operation: 'pms.pending_action.confirm',
       pendingActionRef: 'pending-action-1',
       cardPayloadRef: 'card-payload-1',
+      clientToken: expect.any(String),
+      requestFingerprint: expect.any(String),
+      correlationId: expect.any(String),
+      requestedAt: '2026-05-06T12:00:02.000Z',
       scope: {
         propertyId: 'property-small-hotel',
-        channel: 'typed_card'
+        channel: 'typed_card',
+        userIdHash: expect.any(String)
       }
     });
     expect(body.pendingActionId).toBeUndefined();
+  });
+
+  it('posts PMS Agent approval-card cancel callbacks to the fixed platform cancel route', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 202 }));
+    const callbackForwarder = createPmsCheckoutPlatformPendingActionCallbackForwarder({
+      baseUrl: 'http://127.0.0.1:8791',
+      token: 'platform-token-1',
+      fetchImpl
+    });
+    const pendingStore = createPendingStore({ ttlMs: 60_000 });
+    const [notification] = pmsAgentResultNotifications({ result: approvalCard, turn, pendingStore, now: () => '2026-05-06T12:00:01.000Z' });
+    const action = notification.actions?.[1];
+
+    const response = await dispatchCardActionRequest({
+      method: 'POST',
+      pathname: '/providers/card-action',
+      rawBody: JSON.stringify({
+        token: 'verification-token-1',
+        action: { value: action?.payload },
+        operator: { open_id: 'ou_1' }
+      })
+    }, {
+      providerRouter: createProviderRouter(createProviderRegistry({ allowedProviderKeys: ['warning-agent'] }), {}),
+      pendingStore,
+      replySink: { sendNotification: vi.fn() },
+      callbackForwarder,
+      verificationToken: 'verification-token-1',
+      now: () => '2026-05-06T12:00:02.000Z'
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'http://127.0.0.1:8791/v1/pms/pending-actions/cancel',
+      expect.objectContaining({ method: 'POST' })
+    );
+    const body = JSON.parse(String(fetchImpl.mock.calls[0][1].body));
+    expect(body).toMatchObject({
+      operation: 'pms.pending_action.cancel',
+      pendingActionRef: 'pending-action-1',
+      cardPayloadRef: 'card-payload-1',
+      reason: expect.stringContaining('取消'),
+      scope: {
+        propertyId: 'property-small-hotel',
+        channel: 'typed_card',
+        userIdHash: expect.any(String)
+      },
+      clientToken: expect.any(String),
+      requestFingerprint: expect.any(String),
+      correlationId: expect.any(String),
+      requestedAt: '2026-05-06T12:00:02.000Z'
+    });
   });
 });

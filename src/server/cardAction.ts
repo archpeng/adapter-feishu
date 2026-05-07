@@ -1,10 +1,6 @@
 import type { IncomingHttpHeaders } from 'node:http';
 import type { DeliveryTarget, InboundTurn, JsonRecord } from '../core/contracts.js';
 import {
-  handleConversationReservationCardAction,
-  isConversationReservationCardAction,
-} from '../conversation/reservationCardDelivery.js';
-import {
   handlePmsAgentPendingAction,
   isPmsAgentPendingAction,
 } from '../pmsAgent/delivery.js';
@@ -97,18 +93,12 @@ export async function dispatchCardActionRequest(
         pendingRecord,
         callbackForwarder: deps.callbackForwarder
       }).catch((error: unknown) => ({ error }))
-    : isConversationReservationCardAction(providerKey, actionId)
-      ? await handleConversationReservationCardAction({
-          turn: callbackTurn,
-          pendingRecord,
-          callbackForwarder: deps.callbackForwarder
-        }).catch((error: unknown) => ({ error }))
-      : await dispatchProviderCallback({
-          providerKey,
-          callbackTurn,
-          pendingRecord,
-          deps
-        });
+    : await dispatchProviderCallback({
+        providerKey,
+        callbackTurn,
+        pendingRecord,
+        deps
+      });
 
   if ('error' in result) {
     return {

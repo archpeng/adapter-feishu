@@ -24,7 +24,7 @@
 
 ## Latest closeout summary
 
-PMS Core checkout proof is implemented and documented in `/home/peng/dt-git/github/pms-platform`. Current adapter PMS work is platform-only: Feishu turns go to `ai-conversation`, and typed-card callbacks go to fixed `pms-platform` pending-action endpoints. This repo has no separate active parser-compatible pack.
+PMS Core checkout proof is implemented and documented in `/home/peng/dt-git/github/pms-platform`. Current adapter PMS work is platform-only: Feishu turns go to `pms-agent-v2`, and typed-card callbacks go to fixed `pms-platform` pending-action endpoints. This repo has no separate active parser-compatible pack.
 
 ## Archived packs
 

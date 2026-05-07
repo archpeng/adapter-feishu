@@ -9,7 +9,7 @@ Supported modes:
 1. **Managed formKey mode** — preferred. Caller sends `formKey`; adapter loads a server-side registry, maps business fields, injects fixed fields, and writes to the registry-bound Base target.
 2. **Default-target mode** — caller omits `formKey`; adapter writes table-field names to the configured default target. Raw `target` override is accepted only when `ADAPTER_FEISHU_FORM_ALLOW_TARGET_OVERRIDE=true`.
 
-There is no separate operation-request forwarding path in `adapter-feishu`. PMS operation-request facts are either captured as managed Base records or handled by `ai-conversation -> pms-platform` product tools.
+There is no separate operation-request forwarding path in `adapter-feishu`. PMS operation-request facts are either captured as managed Base records or handled by `pms-agent-v2 -> pms-platform` product tools.
 
 ## Environment
 

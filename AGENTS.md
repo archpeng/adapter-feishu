@@ -9,21 +9,21 @@ Active product chain:
 ```text
 Feishu
   -> adapter-feishu
-  -> ai-conversation
+  -> pms-agent-v2
   -> pms-platform
 ```
 
 Ownership split:
 
 - `adapter-feishu`: Feishu ingress, message/card delivery, typed-card callback transport, allowlists, dedupe, provider routing, short-lived callback state, and managed Base adapter seams.
-- `ai-conversation`: Pi/LLM conversation continuity, semantic routing, safe tool planning, deterministic policy/PlanCompiler gate use, and grounded natural-language replies.
+- `pms-agent-v2`: PMS conversation continuity, semantic routing, safe tool planning, deterministic policy/PlanCompiler gate use, and grounded natural-language replies.
 - `pms-platform`: PMS domain truth, typed PMS workflow callbacks, persistence, state transitions, read models, audits, idempotency, and business invariants.
 
 ## Boundary law
 
 `adapter-feishu` must remain a Feishu transport and typed-callback adapter:
 
-- natural-language chat is forwarded to `ai-conversation` for semantic interpretation;
+- natural-language PMS chat is forwarded to `pms-agent-v2` for semantic interpretation;
 - typed-card callbacks are forwarded to fixed `pms-platform` pending-action endpoints only;
 - Base writes remain managed/registry-bound and never PMS truth;
 - provider routing, short-lived pending callback state, allowlists, and dedupe are transport concerns only;
@@ -39,7 +39,7 @@ Ownership split:
 
 ## Dependency boundary
 
-Do not add `@mariozechner/pi-agent-core`, `@mariozechner/pi-ai`, `@mariozechner/pi-coding-agent`, or LLM/agent runtime packages to this repo. The Feishu SDK dependency belongs here; Pi/LLM conversation runtime belongs in `ai-conversation`; platform-owned PMS workflows and truth belong in `pms-platform`.
+Do not add `@mariozechner/pi-agent-core`, `@mariozechner/pi-ai`, `@mariozechner/pi-coding-agent`, or LLM/agent runtime packages to this repo. The Feishu SDK dependency belongs here; PMS Agent runtime belongs outside this adapter; platform-owned PMS workflows and truth belong in `pms-platform`.
 
 ## Validation
 

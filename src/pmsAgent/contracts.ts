@@ -28,11 +28,27 @@ export interface PmsPendingActionRef {
   tenantId?: string;
   pendingActionId?: string;
   pendingActionRef?: string;
-  cardPayloadRef?: string;
+  cardPayloadRef: string;
   quoteRef?: string;
   propertyId?: string;
   action: 'reservation_confirm';
   expiresAt?: string;
+}
+
+export interface PmsReservationGroupSelection {
+  roomId: string;
+  roomNumber?: string;
+  roomTypeId?: string;
+  roomType?: string;
+}
+
+export interface PmsReservationGroupCardDetails {
+  guestDisplayName: string;
+  arrivalDate: string;
+  departureDate: string;
+  quantity: number;
+  selections: PmsReservationGroupSelection[];
+  quoteStatus: 'pricingUnsupported';
 }
 
 export interface PmsApprovalCard {
@@ -42,6 +58,7 @@ export interface PmsApprovalCard {
   summary: string;
   confirmLabel: string;
   cancelLabel: string;
+  reservationGroup?: PmsReservationGroupCardDetails;
 }
 
 export type AgentResult =

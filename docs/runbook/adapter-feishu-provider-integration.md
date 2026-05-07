@@ -3,7 +3,7 @@
 ## Active PMS/Feishu path
 
 ```text
-Feishu -> adapter-feishu -> ai-conversation -> pms-platform
+Feishu -> adapter-feishu -> pms-agent-v2 -> pms-platform
 ```
 
 `adapter-feishu` owns Feishu ingress, message/card delivery, provider routing, short-lived pending callback state, and typed-card callback transport. It does not own PMS business truth or natural-language PMS routing.
@@ -36,17 +36,17 @@ Fixed callback endpoints:
 
 Callback forwarding uses `Authorization: Bearer <PMS_PLATFORM_PENDING_ACTION_TOKEN>`. Token values, raw Feishu IDs, pending refs, card payload refs, and raw platform URLs with credentials must not be logged or committed.
 
-## Conversation forwarding
+## PMS Agent forwarding
 
-Natural-language command turns should be forwarded to `ai-conversation`:
+Natural-language PMS command turns should be forwarded to `pms-agent-v2`:
 
 ```env
-ADAPTER_FEISHU_CONVERSATION_TURN_URL=http://ai-conversation:8793/conversation/feishu-turn
-AI_CONVERSATION_INBOUND_AUTH_TOKEN=<local secret, do not commit>
+PMS_AGENT_TURN_URL=http://pms-agent-v2:8795/v1/feishu-turn
+PMS_AGENT_AUTH_TOKEN=<local secret, do not commit>
 ADAPTER_FEISHU_ALLOWED_CHAT_IDS=<allowed chat ids>
 ```
 
-`ai-conversation` performs semantic routing and safe PMS tool planning; `pms-platform` owns PMS truth and workflow execution.
+`pms-agent-v2` performs semantic routing and safe PMS tool planning; `pms-platform` owns PMS truth and workflow execution. Deprecated `ADAPTER_FEISHU_CONVERSATION_*` and `AI_CONVERSATION_*` configuration is rejected at startup.
 
 ## Validation
 

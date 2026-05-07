@@ -95,6 +95,7 @@ function isApprovalCard(value: unknown): boolean {
   return isRecord(ref)
     && ref.type === 'pms_pending_action'
     && nonEmptyString(ref.pendingActionRef ?? ref.pendingActionId)
+    && nonEmptyString(ref.cardPayloadRef)
     && ref.action === 'reservation_confirm'
     && nonEmptyString(value.title)
     && nonEmptyString(value.summary)

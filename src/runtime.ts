@@ -13,11 +13,6 @@ import { createReplySink, type ReplySink } from './channels/feishu/replySink.js'
 import { type DispatchRequest, dispatchWebhookRequest } from './channels/feishu/webhook.js';
 import { readRequestBody, respondJson } from './channels/feishu/webhookSecurity.js';
 import type { AdapterConfig } from './config.js';
-import { createConversationHttpTurnForwarder } from './conversation/forwarder.js';
-import {
-  buildConversationReservationCardNotification,
-  conversationReservationCardReplies,
-} from './conversation/reservationCardDelivery.js';
 import { createPmsAgentHttpTurnForwarder } from './pmsAgent/forwarder.js';
 import { PMS_AGENT_PROVIDER_KEY } from './pmsAgent/contracts.js';
 import { pmsAgentResultNotifications } from './pmsAgent/delivery.js';
@@ -152,15 +147,6 @@ export function createAdapterRuntime(
         timeoutMs: pmsAgentConfig.turnTimeoutMs
       })
     : undefined;
-  const conversationConfig = config.conversation;
-  const conversationTurnForwarder = conversationConfig.turnUrl && conversationConfig.inboundAuthToken
-    ? createConversationHttpTurnForwarder({
-        url: conversationConfig.turnUrl,
-        token: conversationConfig.inboundAuthToken,
-        headerName: conversationConfig.inboundAuthHeader,
-        timeoutMs: conversationConfig.turnTimeoutMs
-      })
-    : undefined;
 
   if (config.providers.keys.includes(PMS_CHECKOUT_PROVIDER_KEY)) {
     registerProvider(providerRegistry, createPmsCheckoutProvider({
@@ -268,69 +254,6 @@ export function createAdapterRuntime(
         if (logInboundSummary) {
           logSafeForwardingDecision('adapter_feishu_pms_agent_turn_forward_failed', turn, PMS_AGENT_PROVIDER_KEY, {
             route: 'pms-agent-v2',
-            errorName: error instanceof Error ? error.name : 'UnknownError',
-            errorMessageHash: hashRedacted(error instanceof Error ? error.message : String(error))
-          });
-        }
-      }
-      return;
-    }
-
-    if (turn.intent === 'command' && conversationTurnForwarder) {
-      const authorization = authorizeAdapterOwnedTurn(turn, conversationConfig);
-      if (!authorization.ok) {
-        if (logInboundSummary) {
-          logSafeForwardingDecision('adapter_feishu_conversation_turn_rejected', turn, 'ai-conversation', {
-            reason: authorization.reason,
-            route: 'conversation'
-          });
-        }
-        return;
-      }
-
-      const dedupeDecision = deduper.markSeen({
-        providerKey: 'ai-conversation',
-        dedupeKey: conversationTurnDedupeKey(turn)
-      });
-      if (dedupeDecision.isDuplicate) {
-        if (logInboundSummary) {
-          console.log(JSON.stringify({
-            event: 'adapter_feishu_conversation_turn_duplicate_suppressed',
-            providerKey: 'ai-conversation',
-            route: 'conversation',
-            turnHash: hashRedacted(turn.turnId)
-          }));
-        }
-        return;
-      }
-
-      try {
-        const forwardResult = await conversationTurnForwarder.forwardTurn(turn);
-        if (logInboundSummary) {
-          console.log(JSON.stringify({
-            event: 'adapter_feishu_conversation_turn_forwarded',
-            providerKey: 'ai-conversation',
-            route: 'conversation',
-            turnHash: hashRedacted(turn.turnId),
-            statusCode: forwardResult.statusCode,
-            bodyStatus: typeof forwardResult.body.status === 'string' ? forwardResult.body.status : undefined,
-            bodyOk: typeof forwardResult.body.ok === 'boolean' ? forwardResult.body.ok : undefined,
-            intent: typeof forwardResult.body.intent === 'string' ? forwardResult.body.intent : undefined
-          }));
-        }
-        await deliverConversationReplies({
-          replySink,
-          turn,
-          forwardResult,
-          logInboundSummary,
-          pendingStore,
-          now,
-          callbackForwarder: pmsCheckoutCallbackForwarder
-        });
-      } catch (error) {
-        if (logInboundSummary) {
-          logSafeForwardingDecision('adapter_feishu_conversation_turn_forward_failed', turn, 'ai-conversation', {
-            route: 'conversation',
             errorName: error instanceof Error ? error.name : 'UnknownError',
             errorMessageHash: hashRedacted(error instanceof Error ? error.message : String(error))
           });
@@ -591,10 +514,6 @@ function pmsAgentTurnDedupeKey(turn: InboundTurn): string {
   return `pms-agent-turn:${turn.turnId}`;
 }
 
-function conversationTurnDedupeKey(turn: InboundTurn): string {
-  return `conversation-turn:${turn.turnId}`;
-}
-
 async function deliverPmsAgentResult(input: {
   replySink: ReplySink;
   turn: InboundTurn;
@@ -631,134 +550,6 @@ async function deliverPmsAgentResult(input: {
       }
     }
   }
-}
-
-async function deliverConversationReplies(input: {
-  replySink: ReplySink;
-  turn: InboundTurn;
-  forwardResult: { body: JsonRecord };
-  logInboundSummary: boolean;
-  pendingStore: PendingStore;
-  now: () => string;
-  callbackForwarder?: Parameters<typeof dispatchCardActionRequest>[1]['callbackForwarder'];
-}): Promise<void> {
-  const replies = conversationReplyTexts(input.forwardResult.body);
-  const reservationCards = conversationReservationCardReplies(input.forwardResult.body);
-  if (replies.length === 0 && reservationCards.length === 0) {
-    return;
-  }
-
-  if (replies.length > 0) {
-    await deliverConversationTextReplies(input, replies);
-  }
-  for (const reservationCard of reservationCards) {
-    await deliverConversationReservationCard(input, reservationCard);
-  }
-}
-
-async function deliverConversationTextReplies(input: {
-  replySink: ReplySink;
-  turn: InboundTurn;
-  forwardResult: { body: JsonRecord };
-  logInboundSummary: boolean;
-}, replies: string[]): Promise<void> {
-  try {
-    await input.replySink.sendNotification({
-      providerKey: 'ai-conversation',
-      notificationId: `ai-conversation-reply-${input.turn.turnId}`,
-      occurredAt: new Date().toISOString(),
-      title: 'PMS智能助手',
-      summary: replies.join('\n'),
-      target: input.turn.target,
-      rawPayload: {
-        source: 'ai-conversation',
-        replyCount: replies.length,
-        intent: typeof input.forwardResult.body.intent === 'string' ? input.forwardResult.body.intent : 'unknown'
-      }
-    });
-    if (input.logInboundSummary) {
-      console.log(JSON.stringify({
-        event: 'adapter_feishu_conversation_reply_delivered',
-        providerKey: 'ai-conversation',
-        turnHash: hashRedacted(input.turn.turnId),
-        replyCount: replies.length
-      }));
-    }
-  } catch (error) {
-    if (input.logInboundSummary) {
-      logSafeForwardingDecision('adapter_feishu_conversation_reply_failed', input.turn, 'ai-conversation', {
-        route: 'conversation-reply',
-        replyCount: replies.length,
-        errorName: error instanceof Error ? error.name : 'UnknownError',
-        errorMessageHash: hashRedacted(error instanceof Error ? error.message : String(error))
-      });
-    }
-  }
-}
-
-async function deliverConversationReservationCard(
-  input: {
-    replySink: ReplySink;
-    turn: InboundTurn;
-    logInboundSummary: boolean;
-    pendingStore: PendingStore;
-    now: () => string;
-    callbackForwarder?: Parameters<typeof dispatchCardActionRequest>[1]['callbackForwarder'];
-  },
-  reservationCard: ReturnType<typeof conversationReservationCardReplies>[number]
-): Promise<void> {
-  const notification = input.callbackForwarder
-    ? buildConversationReservationCardNotification({
-        reply: reservationCard,
-        turn: input.turn,
-        pendingStore: input.pendingStore,
-        now: input.now
-      })
-    : undefined;
-  try {
-    if (notification) {
-      await input.replySink.sendNotification(notification);
-    } else {
-      await input.replySink.sendNotification({
-        providerKey: 'ai-conversation',
-        notificationId: `ai-conversation-reservation-card-gap-${input.turn.turnId}`,
-        occurredAt: input.now(),
-        title: 'PMS智能助手',
-        summary: 'PMS 已生成待确认的预订草稿，但 adapter-feishu 未配置 pending-action 回调，未发送可点击确认卡片；普通文字不能确认预订。',
-        target: input.turn.target,
-        rawPayload: {
-          source: 'ai-conversation',
-          contract: 'ai-conversation.reservation-confirmation-card.v1',
-          delivery: 'capability_gap',
-          rawRefsLogged: false
-        }
-      });
-    }
-    if (input.logInboundSummary) {
-      console.log(JSON.stringify({
-        event: notification ? 'adapter_feishu_conversation_reservation_card_delivered' : 'adapter_feishu_conversation_reservation_card_gap',
-        providerKey: notification?.providerKey ?? 'ai-conversation',
-        turnHash: hashRedacted(input.turn.turnId),
-        cardDelivery: notification ? 'interactive_card' : 'capability_gap'
-      }));
-    }
-  } catch (error) {
-    if (input.logInboundSummary) {
-      logSafeForwardingDecision('adapter_feishu_conversation_reservation_card_failed', input.turn, 'ai-conversation', {
-        route: 'conversation-reservation-card',
-        errorName: error instanceof Error ? error.name : 'UnknownError',
-        errorMessageHash: hashRedacted(error instanceof Error ? error.message : String(error))
-      });
-    }
-  }
-}
-
-function conversationReplyTexts(body: JsonRecord): string[] {
-  const replies = Array.isArray(body.replies) ? body.replies : [];
-  return replies
-    .map((reply) => (reply && typeof reply === 'object' && !Array.isArray(reply) && reply.type === 'text' ? reply.text : undefined))
-    .filter((text): text is string => typeof text === 'string' && text.trim().length > 0)
-    .map((text) => text.trim());
 }
 
 function logSafeForwardingDecision(
