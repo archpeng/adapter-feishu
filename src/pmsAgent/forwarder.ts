@@ -50,7 +50,7 @@ export function createPmsAgentHttpTurnForwarder(options: PmsAgentTurnForwarderOp
           signal: abortController.signal
         });
         const body = await parseResponseBody(response);
-        const result = agentResultFromBody(body);
+        const result = parseAgentResultFromBody(body);
         if (!response.ok && !result) {
           throw new Error(`pms_agent_turn_forward_failed:${response.status}`);
         }
@@ -66,7 +66,8 @@ export function createPmsAgentHttpTurnForwarder(options: PmsAgentTurnForwarderOp
   };
 }
 
-function agentResultFromBody(body: JsonRecord): AgentResult | undefined {
+function parseAgentResultFromBody(body: JsonRecord): AgentResult | undefined {
+  // Keep the validated transport-boundary cast here so downstream delivery code receives a typed AgentResult.
   return isAgentResult(body) ? body as unknown as AgentResult : undefined;
 }
 
