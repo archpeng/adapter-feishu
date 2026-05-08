@@ -233,6 +233,22 @@ describe('dispatchPmsBaseProjectionRequest', () => {
         registry: createRegistry()
       }
     );
+    const arrayTargetResponse = await dispatchPmsBaseProjectionRequest(
+      {
+        method: 'POST',
+        pathname: '/providers/pms-base',
+        rawBody: JSON.stringify({
+          operation: 'pms_base_upsert_housekeeping_task_projection',
+          taskId: 'task-array-record-id-target',
+          fields: { roomNumber: '101' },
+          relationships: [{ recordId: 'rec_room_101' }]
+        })
+      },
+      {
+        bitableClient: createClient(),
+        registry: createRegistry()
+      }
+    );
     const arbitraryResponse = await dispatchPmsBaseProjectionRequest(
       {
         method: 'POST',
@@ -268,6 +284,14 @@ describe('dispatchPmsBaseProjectionRequest', () => {
       }
     });
     expect(nestedRelationshipTargetResponse).toEqual({
+      statusCode: 400,
+      body: {
+        code: 400,
+        message: 'invalid_payload',
+        errors: ['target_not_allowed:recordId']
+      }
+    });
+    expect(arrayTargetResponse).toEqual({
       statusCode: 400,
       body: {
         code: 400,

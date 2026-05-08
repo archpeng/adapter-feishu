@@ -84,4 +84,29 @@ describe('createPmsAgentHttpTurnForwarder', () => {
       fetchImpl
     }).forwardTurn(turn)).resolves.toMatchObject({ result: undefined });
   });
+
+  it('rejects approval-card results without a platform pending-action ref', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      type: 'approval_card',
+      card: {
+        type: 'pms_pending_action_card',
+        ref: {
+          type: 'pms_pending_action',
+          cardPayloadRef: 'card-payload-1',
+          propertyId: 'property-small-hotel',
+          action: 'reservation_confirm'
+        },
+        title: '确认预订',
+        summary: '请确认。',
+        confirmLabel: '确认',
+        cancelLabel: '取消'
+      }
+    }), { status: 200 }));
+
+    await expect(createPmsAgentHttpTurnForwarder({
+      url: 'http://127.0.0.1:8795/v1/feishu-turn',
+      token: 'agent-token-1',
+      fetchImpl
+    }).forwardTurn(turn)).resolves.toMatchObject({ result: undefined });
+  });
 });

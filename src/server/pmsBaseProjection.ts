@@ -1,30 +1,32 @@
 import type { IncomingHttpHeaders } from 'node:http';
-import type { BitableClient } from '../channels/feishu/bitableClient.js';
 import type { JsonRecord } from '../core/contracts.js';
-import {
-  PmsBaseProjectionError,
-  type PmsBaseProjectionRegistry
-} from '../projections/pmsBase.js';
+import { PmsBaseProjectionError } from '../projections/pmsBase.js';
 import { dispatchPmsBaseProjectionOperation } from './pmsBaseProjection/handlers.js';
+import type {
+  PmsBaseProjectionDispatchDeps,
+  PmsBaseProjectionRequest,
+  PmsBaseProjectionResponse
+} from './pmsBaseProjection/types.js';
+export type {
+  PmsBaseProjectionDispatchDeps,
+  PmsBaseProjectionRequest,
+  PmsBaseProjectionResponse
+} from './pmsBaseProjection/types.js';
 
-export interface PmsBaseProjectionRequest {
-  method?: string;
-  pathname?: string;
-  headers?: IncomingHttpHeaders;
-  rawBody: string;
-}
-
-export interface PmsBaseProjectionResponse {
-  statusCode: number;
-  body: Record<string, unknown>;
-}
-
-export interface PmsBaseProjectionDispatchDeps {
-  bitableClient: Pick<BitableClient, 'createRecord' | 'listRecords' | 'updateRecord' | 'listTableFields'>;
-  registry?: PmsBaseProjectionRegistry;
-  authToken?: string;
-  now?: () => string;
-}
+const FORBIDDEN_TARGET_KEYS = new Set([
+  'target',
+  'appToken',
+  'tableId',
+  'formId',
+  'recordId',
+  'callbackUrl',
+  'callbackURL',
+  'token',
+  'authToken',
+  'authorization',
+  'tenantId',
+  'tenant'
+]);
 
 export async function dispatchPmsBaseProjectionRequest(
   request: PmsBaseProjectionRequest,
@@ -96,16 +98,26 @@ function projectionErrorResponse(error: unknown): PmsBaseProjectionResponse {
 }
 
 function firstTargetShieldError(payload: JsonRecord): string | undefined {
-  return firstTargetShieldErrorInRecord(payload);
+  return firstTargetShieldErrorInValue(payload);
 }
 
-function firstTargetShieldErrorInRecord(payload: Record<string, unknown>): string | undefined {
-  for (const [key, value] of Object.entries(payload)) {
-    if (['target', 'appToken', 'tableId', 'formId', 'recordId', 'callbackUrl', 'callbackURL', 'token', 'authToken', 'authorization', 'tenantId', 'tenant'].includes(key)) {
-      return `target_not_allowed:${key}`;
+function firstTargetShieldErrorInValue(value: unknown): string | undefined {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const nested = firstTargetShieldErrorInValue(item);
+      if (nested) {
+        return nested;
+      }
     }
-    if (isRecord(value)) {
-      const nested = firstTargetShieldErrorInRecord(value);
+    return undefined;
+  }
+
+  if (isRecord(value)) {
+    for (const [key, entry] of Object.entries(value)) {
+      if (FORBIDDEN_TARGET_KEYS.has(key)) {
+        return `target_not_allowed:${key}`;
+      }
+      const nested = firstTargetShieldErrorInValue(entry);
       if (nested) {
         return nested;
       }

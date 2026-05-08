@@ -26,6 +26,10 @@ export function approvalCardNotification(input: {
   readonly now: () => string;
 }, card: PmsApprovalCard): ProviderNotification {
   const pendingAction = pendingActionFromRef(card.ref);
+  if (!pendingAction) {
+    return invalidApprovalCardNotification(input);
+  }
+
   const pendingRefForHash = pendingAction?.pendingActionRef ?? 'missing-pending-action-ref';
   const correlationId = `pms-agent:${hashRedacted(`${pendingRefForHash}:${pendingAction?.cardPayloadRef ?? ''}`)}`;
   const pendingId = `pms-agent-${hashRedacted(`${pendingRefForHash}:${pendingAction?.cardPayloadRef ?? ''}`)}`;
@@ -73,6 +77,29 @@ export function approvalCardNotification(input: {
     metadata: {
       projectionKind: 'pmsAgentApprovalCard',
       pendingId: pendingRecord.pendingId,
+      callbackOwner: 'adapter-feishu',
+      targetOwner: 'pms-platform',
+      naturalLanguageConfirmAllowed: false
+    }
+  });
+}
+
+function invalidApprovalCardNotification(input: {
+  readonly turn: InboundTurn;
+  readonly now: () => string;
+}): ProviderNotification {
+  return baseNotification(input, {
+    notificationId: `pms-agent-approval-card-invalid-${input.turn.turnId}`,
+    title: 'PMS审批卡不可用',
+    summary: 'PMS审批卡缺少必要 pending-action 引用，未生成可点击确认按钮。',
+    bodyMarkdown: '请重新发起预订准备流程。',
+    rawPayload: {
+      source: PMS_AGENT_PROVIDER_KEY,
+      resultType: 'approval_card_invalid',
+      rawRefsLogged: false
+    },
+    metadata: {
+      projectionKind: 'pmsAgentApprovalCardInvalid',
       callbackOwner: 'adapter-feishu',
       targetOwner: 'pms-platform',
       naturalLanguageConfirmAllowed: false

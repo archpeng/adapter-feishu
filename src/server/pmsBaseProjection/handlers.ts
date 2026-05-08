@@ -22,7 +22,7 @@ import {
   pms_base_update_operation_result,
   pms_base_update_room_projection
 } from '../../projections/pmsBase.js';
-import type { PmsBaseProjectionResponse } from '../pmsBaseProjection.js';
+import type { PmsBaseProjectionResponse } from './types.js';
 
 interface PmsBaseProjectionOperationDeps {
   bitableClient: Pick<BitableClient, 'createRecord' | 'listRecords' | 'updateRecord' | 'listTableFields'>;

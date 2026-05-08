@@ -154,6 +154,47 @@ describe('pmsAgentResultNotifications', () => {
     expect(visiblePayload).not.toContain('￥');
   });
 
+  it('renders invalid PMS approval cards without clickable actions or pending state', () => {
+    const pendingStore = createPendingStore({ ttlMs: 60_000 });
+    const invalidApprovalCard = {
+      type: 'approval_card',
+      card: {
+        type: 'pms_pending_action_card',
+        ref: {
+          type: 'pms_pending_action',
+          tenantId: 'tenant_1',
+          propertyId: 'property-small-hotel',
+          action: 'reservation_confirm'
+        },
+        title: '确认预订',
+        summary: '点击确认后转交 PMS pending-action。',
+        confirmLabel: '确认',
+        cancelLabel: '取消'
+      }
+    } as AgentResult;
+
+    const [notification] = pmsAgentResultNotifications({
+      result: invalidApprovalCard,
+      turn,
+      pendingStore,
+      now: () => '2026-05-06T12:00:01.000Z'
+    });
+
+    expect(notification).toMatchObject({
+      providerKey: PMS_AGENT_PROVIDER_KEY,
+      title: 'PMS审批卡不可用',
+      summary: 'PMS审批卡缺少必要 pending-action 引用，未生成可点击确认按钮。',
+      bodyMarkdown: '请重新发起预订准备流程。',
+      rawPayload: {
+        source: PMS_AGENT_PROVIDER_KEY,
+        resultType: 'approval_card_invalid',
+        rawRefsLogged: false
+      }
+    });
+    expect(notification.actions).toBeUndefined();
+    expect(pendingStore.list(PMS_AGENT_PENDING_ACTION_PROVIDER_KEY)).toEqual([]);
+  });
+
   it('forwards PMS approval-card clicks through the adapter-owned pending-action callback path', async () => {
     const pendingStore = createPendingStore({ ttlMs: 60_000 });
     const [notification] = pmsAgentResultNotifications({ result: approvalCard, turn, pendingStore, now: () => '2026-05-06T12:00:01.000Z' });
