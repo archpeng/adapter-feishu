@@ -30,6 +30,7 @@ export interface PendingStoreOptions {
 export interface PendingStore {
   put(input: PendingActionInput): PendingActionRecord;
   get(providerKey: ProviderKey, pendingId: string): PendingActionRecord | undefined;
+  updateTarget(providerKey: ProviderKey, pendingId: string, target: DeliveryTarget): PendingActionRecord | undefined;
   consume(providerKey: ProviderKey, pendingId: string): PendingActionRecord | undefined;
   delete(providerKey: ProviderKey, pendingId: string): boolean;
   list(providerKey?: ProviderKey): PendingActionRecord[];
@@ -92,6 +93,25 @@ export function createPendingStore(options: PendingStoreOptions): PendingStore {
       const referenceTime = now();
       pruneExpired(referenceTime);
       return records.get(toScopedKey(providerKey, pendingId));
+    },
+    updateTarget(providerKey, pendingId, target) {
+      const referenceTime = now();
+      pruneExpired(referenceTime);
+      const key = toScopedKey(providerKey, pendingId);
+      const record = records.get(key);
+      if (!record) {
+        return undefined;
+      }
+      const updated = {
+        ...record,
+        target: {
+          ...(record.target ?? {}),
+          ...target
+        }
+      };
+      records.set(key, updated);
+      persist();
+      return updated;
     },
     consume(providerKey, pendingId) {
       const referenceTime = now();

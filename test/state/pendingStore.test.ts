@@ -94,4 +94,26 @@ describe('createPendingStore', () => {
     expect(store.get('warning-agent', first.pendingId)).toBeUndefined();
     expect(store.list('warning-agent')).toEqual([second]);
   });
+
+  it('updates pending action delivery target while preserving existing target fields', () => {
+    const store = createPendingStore({
+      ttlMs: 10_000,
+      now: () => 1_000,
+      idGenerator: () => 'pending-target-1'
+    });
+
+    store.put({
+      providerKey: 'pms-agent-v2-pending-action',
+      actionId: 'pms.pending_action',
+      payload: { workflow: 'reservationGroup' },
+      target: { channel: 'feishu', chatId: 'oc-chat-1' }
+    });
+
+    expect(store.updateTarget('pms-agent-v2-pending-action', 'pending-target-1', { channel: 'feishu', messageId: 'om-card-1' })).toMatchObject({
+      target: { channel: 'feishu', chatId: 'oc-chat-1', messageId: 'om-card-1' }
+    });
+    expect(store.get('pms-agent-v2-pending-action', 'pending-target-1')).toMatchObject({
+      target: { channel: 'feishu', chatId: 'oc-chat-1', messageId: 'om-card-1' }
+    });
+  });
 });

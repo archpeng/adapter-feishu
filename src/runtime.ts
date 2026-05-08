@@ -14,7 +14,7 @@ import { type DispatchRequest, dispatchWebhookRequest } from './channels/feishu/
 import { readRequestBody, respondJson } from './channels/feishu/webhookSecurity.js';
 import type { AdapterConfig } from './config.js';
 import { createPmsAgentHttpTurnForwarder } from './pmsAgent/forwarder.js';
-import { PMS_AGENT_PROVIDER_KEY } from './pmsAgent/contracts.js';
+import { PMS_AGENT_PENDING_ACTION_PROVIDER_KEY, PMS_AGENT_PROVIDER_KEY } from './pmsAgent/contracts.js';
 import { pmsAgentResultNotifications } from './pmsAgent/delivery.js';
 import { type InboundTurn, type JsonRecord } from './core/contracts.js';
 import { loadManagedFormRegistry, type ManagedFormRegistry } from './forms/registry.js';
@@ -545,7 +545,8 @@ async function deliverPmsAgentResult(input: {
   });
   for (const notification of notifications) {
     try {
-      await input.replySink.sendNotification(notification);
+      const delivery = await input.replySink.sendNotification(notification);
+      rememberPmsAgentApprovalCardMessage(input.pendingStore, notification, delivery.externalRef);
       if (input.logInboundSummary) {
         console.log(JSON.stringify({
           event: 'adapter_feishu_pms_agent_result_delivered',
@@ -564,6 +565,12 @@ async function deliverPmsAgentResult(input: {
       }
     }
   }
+}
+
+function rememberPmsAgentApprovalCardMessage(pendingStore: PendingStore, notification: { metadata?: JsonRecord }, messageId: string | undefined): void {
+  const pendingId = typeof notification.metadata?.pendingId === 'string' ? notification.metadata.pendingId : undefined;
+  if (!pendingId || !messageId) return;
+  pendingStore.updateTarget(PMS_AGENT_PENDING_ACTION_PROVIDER_KEY, pendingId, { channel: 'feishu', messageId });
 }
 
 function logSafeForwardingDecision(

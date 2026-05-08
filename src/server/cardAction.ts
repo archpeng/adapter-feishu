@@ -6,6 +6,7 @@ import {
   isPmsAgentPendingAction,
   pmsAgentPendingActionTerminalNotification,
 } from '../pmsAgent/delivery.js';
+import { renderInteractiveCard } from '../cards/templates.js';
 import type { ProviderCallbackForwarder, ProviderExecutionResult, ProviderNotificationSink } from '../providers/contracts.js';
 import type { ProviderRouter } from '../providers/router.js';
 import type { PendingActionRecord, PendingStore } from '../state/pendingStore.js';
@@ -81,6 +82,9 @@ export async function dispatchCardActionRequest(
 
   const pendingRecord = deps.pendingStore.get(providerKey, pendingId);
   if (!pendingRecord) {
+    if (isPmsAgentPendingAction(providerKey, actionId)) {
+      return alreadyHandledPmsAgentCardResponse(providerKey);
+    }
     return { statusCode: 404, body: { code: 404, message: 'pending_not_found' } };
   }
 
@@ -125,11 +129,17 @@ export async function dispatchCardActionRequest(
     };
   }
 
+  let terminalNotification: ReturnType<typeof pmsAgentPendingActionTerminalNotification> | undefined;
   if (isPmsAgentPendingAction(providerKey, actionId)) {
-    await deliverPmsAgentTerminalNotification({
+    terminalNotification = pmsAgentPendingActionTerminalNotification({
       turn: callbackTurn,
       pendingRecord,
       result,
+      now: deps.now ?? (() => new Date().toISOString())
+    });
+    await deliverPmsAgentTerminalNotification({
+      pendingRecord,
+      notification: terminalNotification,
       deps
     });
   }
@@ -141,40 +151,77 @@ export async function dispatchCardActionRequest(
     body: {
       code: 0,
       providerKey,
-      status: result.status
+      status: result.status,
+      ...(terminalNotification ? pmsAgentTerminalCardResponseBody(terminalNotification) : {})
     }
   };
 }
 
 async function deliverPmsAgentTerminalNotification(input: {
-  turn: InboundTurn;
   pendingRecord: PendingActionRecord;
-  result: ProviderExecutionResult;
+  notification: ReturnType<typeof pmsAgentPendingActionTerminalNotification>;
   deps: CardActionDispatchDeps;
 }): Promise<void> {
-  const notification = pmsAgentPendingActionTerminalNotification({
-    turn: input.turn,
-    pendingRecord: input.pendingRecord,
-    result: input.result,
-    now: input.deps.now ?? (() => new Date().toISOString())
-  });
-
   if (input.deps.replySink.updateNotification) {
     try {
-      await input.deps.replySink.updateNotification(notification);
+      await input.deps.replySink.updateNotification(input.notification);
+      console.log(JSON.stringify({
+        event: 'adapter_feishu_card_update_succeeded',
+        providerKey: input.pendingRecord.providerKey,
+        pendingIdHash: hashRedacted(input.pendingRecord.pendingId),
+        messageIdHash: input.notification.target?.messageId ? hashRedacted(input.notification.target.messageId) : undefined
+      }));
       return;
     } catch (error) {
       console.log(JSON.stringify({
         event: 'adapter_feishu_card_update_failed',
         providerKey: input.pendingRecord.providerKey,
         pendingIdHash: hashRedacted(input.pendingRecord.pendingId),
+        messageIdHash: input.notification.target?.messageId ? hashRedacted(input.notification.target.messageId) : undefined,
         errorName: error instanceof Error ? error.name : 'UnknownError',
         errorMessageHash: hashRedacted(error instanceof Error ? error.message : String(error))
       }));
     }
   }
 
-  await input.deps.replySink.sendNotification(notification);
+  await input.deps.replySink.sendNotification(input.notification);
+}
+
+function pmsAgentTerminalCardResponseBody(notification: ReturnType<typeof pmsAgentPendingActionTerminalNotification>): Record<string, unknown> {
+  return {
+    toast: {
+      type: 'success',
+      content: notification.title
+    },
+    card: renderInteractiveCard({
+      title: notification.title,
+      summary: notification.summary,
+      severity: notification.severity,
+      bodyMarkdown: notification.bodyMarkdown,
+      facts: notification.facts
+    })
+  };
+}
+
+function alreadyHandledPmsAgentCardResponse(providerKey: string): CardActionResponse {
+  return {
+    statusCode: 200,
+    body: {
+      code: 0,
+      providerKey,
+      status: 'ignored',
+      message: 'pending_not_found_or_already_processed',
+      toast: {
+        type: 'info',
+        content: '该卡片已处理或已过期。'
+      },
+      card: renderInteractiveCard({
+        title: '该操作已处理',
+        summary: '这张 PMS 审批卡已被处理或已过期，不能再次点击。',
+        bodyMarkdown: '**无需重复点击。**\n如需查看最新 PMS 状态，请重新发起查询。'
+      })
+    }
+  };
 }
 
 async function dispatchProviderCallback(input: {

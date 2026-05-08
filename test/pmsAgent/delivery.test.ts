@@ -179,14 +179,17 @@ describe('pmsAgentResultNotifications', () => {
       now: () => '2026-05-06T12:00:02.000Z'
     });
 
-    expect(response).toEqual({
+    expect(response).toMatchObject({
       statusCode: 200,
       body: {
         code: 0,
         providerKey: PMS_AGENT_PENDING_ACTION_PROVIDER_KEY,
-        status: 'accepted'
+        status: 'accepted',
+        toast: expect.objectContaining({ type: 'success' }),
+        card: expect.any(Object)
       }
     });
+    expect(JSON.stringify(response.body.card)).not.toContain('"tag":"action"');
     expect(callbackForwarder.forwardCallback).toHaveBeenCalledWith(expect.objectContaining({
       envelope: expect.objectContaining({
         source: 'adapter-feishu',
@@ -252,6 +255,11 @@ describe('pmsAgentResultNotifications', () => {
     });
 
     expect(response.statusCode).toBe(200);
+    expect(response.body).toMatchObject({
+      toast: { type: 'success', content: '预订草稿已确认' },
+      card: expect.any(Object)
+    });
+    expect(JSON.stringify(response.body.card)).not.toContain('"tag":"action"');
     expect(updateNotification).toHaveBeenCalledWith(expect.objectContaining({
       title: '预订草稿已确认',
       summary: expect.stringContaining('pending-action 已确认'),
@@ -264,6 +272,49 @@ describe('pmsAgentResultNotifications', () => {
     expect(updateNotification.mock.calls[0][0].actions).toBeUndefined();
     expect(sendNotification).not.toHaveBeenCalled();
     expect(pendingStore.get(PMS_AGENT_PENDING_ACTION_PROVIDER_KEY, String(action?.payload?.pendingId))).toBeUndefined();
+  });
+
+  it('returns a stale terminal card instead of 404 for repeated PMS approval-card clicks', async () => {
+    const pendingStore = createPendingStore({ ttlMs: 60_000 });
+    const response = await dispatchCardActionRequest({
+      method: 'POST',
+      pathname: '/providers/card-action',
+      rawBody: JSON.stringify({
+        token: 'verification-token-1',
+        action: {
+          value: {
+            providerKey: PMS_AGENT_PENDING_ACTION_PROVIDER_KEY,
+            pendingId: 'already-consumed-pending',
+            actionId: PMS_AGENT_PENDING_ACTION_ID,
+            operation: 'pms.pending_action.confirm'
+          }
+        },
+        operator: { open_id: 'ou_1' }
+      })
+    }, {
+      providerRouter: createProviderRouter(createProviderRegistry({ allowedProviderKeys: ['warning-agent'] }), {}),
+      pendingStore,
+      replySink: { sendNotification: vi.fn() },
+      callbackForwarder: { forwardCallback: vi.fn() },
+      verificationToken: 'verification-token-1',
+      now: () => '2026-05-06T12:00:02.000Z'
+    });
+
+    expect(response).toMatchObject({
+      statusCode: 200,
+      body: {
+        code: 0,
+        providerKey: PMS_AGENT_PENDING_ACTION_PROVIDER_KEY,
+        status: 'ignored',
+        message: 'pending_not_found_or_already_processed',
+        toast: {
+          type: 'info',
+          content: '该卡片已处理或已过期。'
+        },
+        card: expect.any(Object)
+      }
+    });
+    expect(JSON.stringify(response.body.card)).not.toContain('"tag":"action"');
   });
 
   it('does not consume or update PMS approval cards when platform rejects the callback body', async () => {

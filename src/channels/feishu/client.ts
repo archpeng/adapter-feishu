@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { DeliveryTarget } from '../../core/contracts.js';
 import { resolveFeishuMessageTarget, type FeishuClientSendResult } from './types.js';
 
@@ -120,6 +121,7 @@ export function createFeishuClient(config: FeishuClientConfig): FeishuClient {
       throw new Error(`Failed to update Feishu message card: ${stringValue(payload.msg) ?? response.statusText}`);
     }
 
+    logSafeMessageSend('adapter_feishu_message_card_update_succeeded', target, 'chat_id', { msgType: 'interactive' });
     return { messageId };
   }
 
@@ -166,6 +168,12 @@ function logSafeMessageSend(
     hasOpenId: Boolean(target.openId),
     hasUserId: Boolean(target.userId),
     hasUnionId: Boolean(target.unionId),
+    hasMessageId: Boolean(target.messageId),
+    messageIdHash: target.messageId ? hashRedacted(target.messageId) : undefined,
     ...details
   }));
+}
+
+function hashRedacted(value: string): string {
+  return createHash('sha256').update(value).digest('hex').slice(0, 16);
 }

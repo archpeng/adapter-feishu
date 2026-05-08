@@ -80,6 +80,15 @@ describe('createFeishuClient', () => {
     expect(JSON.parse(String(request?.body))).toEqual({
       content: JSON.stringify({ header: { title: '已确认' }, elements: [] })
     });
+    const successPayload = JSON.parse(String(consoleLogSpy.mock.calls[1]?.[0]));
+    expect(successPayload).toMatchObject({
+      event: 'adapter_feishu_message_card_update_succeeded',
+      receiveIdType: 'chat_id',
+      hasMessageId: true,
+      messageIdHash: expect.any(String),
+      msgType: 'interactive'
+    });
+    expect(String(consoleLogSpy.mock.calls[1]?.[0])).not.toContain('om_card_1');
   });
 
   it('logs redacted target shape before sending without raw receive ids', async () => {
@@ -104,6 +113,7 @@ describe('createFeishuClient', () => {
       hasOpenId: false,
       hasUserId: false,
       hasUnionId: false,
+      hasMessageId: false,
       msgType: 'interactive'
     });
     expect(String(consoleLogSpy.mock.calls[0]?.[0])).not.toContain('oc-chat-1');

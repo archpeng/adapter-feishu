@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { createAdapterRuntime, type AdapterRuntimeDeps } from '../src/runtime.js';
 import type { AdapterConfig } from '../src/config.js';
 import type { AdapterHttpRequest, AdapterHttpResponse } from '../src/server/httpHost.js';
+import { PMS_AGENT_PENDING_ACTION_PROVIDER_KEY } from '../src/pmsAgent/contracts.js';
 
 function createConfig(
   ingressMode: AdapterConfig['feishu']['ingressMode'],
@@ -506,6 +507,90 @@ describe('createAdapterRuntime', () => {
         summary: '今晚可订。',
         target: { channel: 'feishu', chatId: 'fixture-chat-allowed', messageId: 'msg-pms-agent-1' }
       }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('remembers the sent PMS Agent approval-card message id for later card updates', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      type: 'approval_card',
+      card: {
+        type: 'pms_pending_action_card',
+        ref: {
+          type: 'pms_pending_action',
+          tenantId: 'tenant-1',
+          pendingActionRef: 'pending-action-1',
+          cardPayloadRef: 'card-payload-1',
+          action: 'reservation_confirm'
+        },
+        title: '确认预订草稿',
+        summary: '点击确认后转交 PMS pending-action。',
+        confirmLabel: '确认',
+        cancelLabel: '取消'
+      }
+    }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const sendNotification = vi.fn().mockResolvedValue({
+      providerKey: 'pms-agent-v2',
+      deliveryId: 'delivery-card-1',
+      channel: 'feishu',
+      status: 'delivered',
+      externalRef: 'om-card-1'
+    });
+    let handleTurn: Parameters<AdapterRuntimeDeps['createLongConnectionIngress']>[1] | undefined;
+    const config = createConfig('long_connection');
+    config.pmsAgent = {
+      turnUrl: 'http://127.0.0.1:8795/v1/feishu-turn',
+      authToken: 'agent-token-1',
+      authHeader: 'X-PMS-AGENT-TOKEN',
+      authEnvName: 'PMS_AGENT_AUTH_TOKEN',
+      turnUrlEnvName: 'PMS_AGENT_TURN_URL',
+      turnTimeoutMs: 5000,
+      allowedChatIds: ['fixture-chat-allowed'],
+      allowedOpenIds: ['fixture-user-allowed'],
+      allowedUserIds: [],
+      allowedUnionIds: []
+    };
+
+    try {
+      const runtime = createAdapterRuntime(config, {
+        createClient: () => createFeishuClientStub(),
+        createBitableClient: () => createBitableClientStub(),
+        createReplySink: () => ({ sendNotification }),
+        createHttpServer: () => ({
+          listen: vi.fn().mockResolvedValue(undefined),
+          close: vi.fn().mockResolvedValue(undefined)
+        }),
+        createLongConnectionIngress: (_config, nextHandleTurn) => {
+          handleTurn = nextHandleTurn;
+          return {
+            start: vi.fn().mockResolvedValue(undefined),
+            stop: vi.fn().mockResolvedValue(undefined)
+          };
+        }
+      });
+
+      await handleTurn?.({
+        turnId: 'msg-pms-agent-card-1',
+        channel: 'feishu',
+        intent: 'command',
+        receivedAt: '2026-05-06T12:00:00.000Z',
+        actor: { openId: 'fixture-user-allowed', tenantKey: 'tenant-1' },
+        target: { channel: 'feishu', chatId: 'fixture-chat-allowed', messageId: 'msg-pms-agent-card-1' },
+        text: '准备预订',
+        rawEvent: {},
+        metadata: { eventType: 'im.message.receive_v1' }
+      }, {
+        source: 'long_connection',
+        rawEvent: {}
+      });
+
+      const [pending] = runtime.pendingStore.list(PMS_AGENT_PENDING_ACTION_PROVIDER_KEY);
+      expect(pending.target).toMatchObject({
+        chatId: 'fixture-chat-allowed',
+        messageId: 'om-card-1'
+      });
     } finally {
       vi.unstubAllGlobals();
     }
