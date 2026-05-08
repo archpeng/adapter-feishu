@@ -274,6 +274,59 @@ describe('pmsAgentResultNotifications', () => {
     expect(pendingStore.get(PMS_AGENT_PENDING_ACTION_PROVIDER_KEY, String(action?.payload?.pendingId))).toBeUndefined();
   });
 
+  it('renders final reservation creation when platform callback returns committed reservation data', async () => {
+    const pendingStore = createPendingStore({ ttlMs: 60_000 });
+    const [notification] = pmsAgentResultNotifications({ result: approvalCard, turn, pendingStore, now: () => '2026-05-06T12:00:01.000Z' });
+    const action = notification.actions?.[0];
+    const updateNotification = vi.fn().mockResolvedValue({ providerKey: PMS_AGENT_PROVIDER_KEY, deliveryId: 'delivery-terminal', channel: 'feishu', status: 'delivered' });
+    const callbackForwarder = {
+      forwardCallback: vi.fn().mockResolvedValue({
+        statusCode: 202,
+        body: {
+          ok: true,
+          mutationStatus: 'committed',
+          idempotencyStatus: 'confirmed',
+          pendingAction: { workflowType: 'reservation', status: 'confirmed', mutationStatus: 'committed' },
+          reservation: { reservationCode: 'R-1234ABCD5678EF90', roomNumber: '1001' }
+        }
+      })
+    };
+
+    const response = await dispatchCardActionRequest({
+      method: 'POST',
+      pathname: '/providers/card-action',
+      rawBody: JSON.stringify({
+        token: 'verification-token-1',
+        open_message_id: 'om-card-1',
+        action: { value: action?.payload },
+        operator: { open_id: 'ou_1' }
+      })
+    }, {
+      providerRouter: createProviderRouter(createProviderRegistry({ allowedProviderKeys: ['warning-agent'] }), {}),
+      pendingStore,
+      replySink: { sendNotification: vi.fn(), updateNotification },
+      callbackForwarder,
+      verificationToken: 'verification-token-1',
+      now: () => '2026-05-06T12:00:02.000Z'
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toMatchObject({
+      toast: { type: 'success', content: '预订已创建' }
+    });
+    expect(updateNotification).toHaveBeenCalledWith(expect.objectContaining({
+      title: '预订已创建',
+      summary: expect.stringContaining('创建最终预订'),
+      bodyMarkdown: expect.stringContaining('预订数据会通过 PMS 投影同步到飞书多维表'),
+      facts: expect.arrayContaining([
+        { label: '持久化语义', value: 'committed' },
+        { label: '预订号', value: 'R-1234ABCD5678EF90' },
+        { label: '房号', value: '1001' }
+      ])
+    }));
+    expect(updateNotification.mock.calls[0][0].actions).toBeUndefined();
+  });
+
   it('returns a stale terminal card instead of 404 for repeated PMS approval-card clicks', async () => {
     const pendingStore = createPendingStore({ ttlMs: 60_000 });
     const response = await dispatchCardActionRequest({
