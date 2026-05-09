@@ -214,10 +214,11 @@ export function createAdapterRuntime(
         return;
       }
 
-      const dedupeDecision = deduper.markSeen({
+      const dedupeKey = {
         providerKey: PMS_AGENT_PROVIDER_KEY,
         dedupeKey: pmsAgentTurnDedupeKey(turn)
-      });
+      };
+      const dedupeDecision = deduper.markSeen(dedupeKey);
       if (dedupeDecision.isDuplicate) {
         if (logInboundSummary) {
           console.log(JSON.stringify({
@@ -242,7 +243,7 @@ export function createAdapterRuntime(
             resultType: forwardResult.result?.type
           }));
         }
-        await deliverPmsAgentResult({
+        const delivered = await deliverPmsAgentResult({
           replySink,
           turn,
           result: forwardResult.result,
@@ -250,7 +251,9 @@ export function createAdapterRuntime(
           pendingStore,
           now
         });
+        if (!delivered) deduper.clear(dedupeKey);
       } catch (error) {
+        deduper.clear(dedupeKey);
         if (logInboundSummary) {
           logSafeForwardingDecision('adapter_feishu_pms_agent_turn_forward_failed', turn, PMS_AGENT_PROVIDER_KEY, {
             route: 'pms-agent-v2',
@@ -535,14 +538,15 @@ async function deliverPmsAgentResult(input: {
   logInboundSummary: boolean;
   pendingStore: PendingStore;
   now: () => string;
-}): Promise<void> {
-  if (!input.result) return;
+}): Promise<boolean> {
+  if (!input.result) return false;
   const notifications = pmsAgentResultNotifications({
     result: input.result,
     turn: input.turn,
     pendingStore: input.pendingStore,
     now: input.now
   });
+  let delivered = notifications.length > 0;
   for (const notification of notifications) {
     try {
       const delivery = await input.replySink.sendNotification(notification);
@@ -556,6 +560,7 @@ async function deliverPmsAgentResult(input: {
         }));
       }
     } catch (error) {
+      delivered = false;
       if (input.logInboundSummary) {
         logSafeForwardingDecision('adapter_feishu_pms_agent_result_failed', input.turn, PMS_AGENT_PROVIDER_KEY, {
           route: 'pms-agent-result',
@@ -565,6 +570,7 @@ async function deliverPmsAgentResult(input: {
       }
     }
   }
+  return delivered;
 }
 
 function rememberPmsAgentApprovalCardMessage(pendingStore: PendingStore, notification: { metadata?: JsonRecord }, messageId: string | undefined): void {

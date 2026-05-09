@@ -108,7 +108,7 @@ function invalidApprovalCardNotification(input: {
 }
 
 function approvalCardBodyMarkdown(card: PmsApprovalCard): string {
-  const lines = ['**需要点击卡片按钮后才会转交 PMS pending-action；确认后表示预订草稿已确认，不代表最终预订已创建。**'];
+  const lines = ['**需要点击卡片按钮后才会转交 PMS pending-action；确认成功后会由 PMS 平台创建正式预订和房间分配。**'];
   if (card.reservationGroup?.quoteStatus === 'pricingUnsupported') {
     lines.push('PMS 当前未提供多房预订价格；adapter-feishu 不编造价格，仅展示待确认的房间选择。');
   }

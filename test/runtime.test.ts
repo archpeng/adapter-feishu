@@ -79,6 +79,35 @@ function createConfig(
   };
 }
 
+function pmsAgentConfigForRuntimeTest(): AdapterConfig['pmsAgent'] {
+  return {
+    turnUrl: 'http://127.0.0.1:8795/v1/feishu-turn',
+    authToken: 'agent-token-1',
+    authHeader: 'X-PMS-AGENT-TOKEN',
+    authEnvName: 'PMS_AGENT_AUTH_TOKEN',
+    turnUrlEnvName: 'PMS_AGENT_TURN_URL',
+    turnTimeoutMs: 5000,
+    allowedChatIds: ['fixture-chat-allowed'],
+    allowedOpenIds: ['fixture-user-allowed'],
+    allowedUserIds: [],
+    allowedUnionIds: []
+  };
+}
+
+function pmsAgentTurn(turnId: string) {
+  return {
+    turnId,
+    channel: 'feishu' as const,
+    intent: 'command' as const,
+    receivedAt: '2026-05-06T12:00:00.000Z',
+    actor: { openId: 'fixture-user-allowed', tenantKey: 'tenant-1' },
+    target: { channel: 'feishu' as const, chatId: 'fixture-chat-allowed', messageId: turnId },
+    text: '查今晚房态',
+    rawEvent: {},
+    metadata: { eventType: 'im.message.receive_v1' }
+  };
+}
+
 function createFeishuClientStub() {
   return {
     sendText: vi.fn().mockResolvedValue({ messageId: 'msg-1' }),
@@ -431,7 +460,7 @@ describe('createAdapterRuntime', () => {
   });
 
   it('forwards authorized command turns to pms-agent-v2 and delivers AgentResult text', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ type: 'text', text: '今晚可订。' }), { status: 200 }));
+    const fetchMock = vi.fn().mockImplementation(async () => new Response(JSON.stringify({ type: 'text', text: '今晚可订。' }), { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
     const sendNotification = vi.fn().mockResolvedValue({
       providerKey: 'pms-agent-v2',
@@ -507,6 +536,136 @@ describe('createAdapterRuntime', () => {
         summary: '今晚可订。',
         target: { channel: 'feishu', chatId: 'fixture-chat-allowed', messageId: 'msg-pms-agent-1' }
       }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('suppresses duplicate PMS Agent turns only after successful forward and delivery', async () => {
+    const fetchMock = vi.fn().mockImplementation(async () => new Response(JSON.stringify({ type: 'text', text: '今晚可订。' }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const sendNotification = vi.fn().mockResolvedValue({
+      providerKey: 'pms-agent-v2',
+      deliveryId: 'delivery-1',
+      channel: 'feishu',
+      status: 'delivered'
+    });
+    let handleTurn: Parameters<AdapterRuntimeDeps['createLongConnectionIngress']>[1] | undefined;
+    const config = createConfig('long_connection');
+    config.pmsAgent = pmsAgentConfigForRuntimeTest();
+
+    try {
+      createAdapterRuntime(config, {
+        createClient: () => createFeishuClientStub(),
+        createBitableClient: () => createBitableClientStub(),
+        createReplySink: () => ({ sendNotification }),
+        createHttpServer: () => ({
+          listen: vi.fn().mockResolvedValue(undefined),
+          close: vi.fn().mockResolvedValue(undefined)
+        }),
+        createLongConnectionIngress: (_config, nextHandleTurn) => {
+          handleTurn = nextHandleTurn;
+          return {
+            start: vi.fn().mockResolvedValue(undefined),
+            stop: vi.fn().mockResolvedValue(undefined)
+          };
+        }
+      });
+
+      const turn = pmsAgentTurn('msg-pms-agent-dedupe-success');
+      await handleTurn?.(turn, { source: 'long_connection', rawEvent: {} });
+      await handleTurn?.(turn, { source: 'long_connection', rawEvent: {} });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(sendNotification).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('releases PMS Agent turn dedupe after forward timeout so Feishu retry can be processed', async () => {
+    const fetchMock = vi.fn()
+      .mockRejectedValueOnce(new DOMException('operation timed out', 'AbortError'))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ type: 'text', text: '已恢复。' }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const sendNotification = vi.fn().mockResolvedValue({
+      providerKey: 'pms-agent-v2',
+      deliveryId: 'delivery-1',
+      channel: 'feishu',
+      status: 'delivered'
+    });
+    let handleTurn: Parameters<AdapterRuntimeDeps['createLongConnectionIngress']>[1] | undefined;
+    const config = createConfig('long_connection');
+    config.pmsAgent = pmsAgentConfigForRuntimeTest();
+
+    try {
+      createAdapterRuntime(config, {
+        createClient: () => createFeishuClientStub(),
+        createBitableClient: () => createBitableClientStub(),
+        createReplySink: () => ({ sendNotification }),
+        createHttpServer: () => ({
+          listen: vi.fn().mockResolvedValue(undefined),
+          close: vi.fn().mockResolvedValue(undefined)
+        }),
+        createLongConnectionIngress: (_config, nextHandleTurn) => {
+          handleTurn = nextHandleTurn;
+          return {
+            start: vi.fn().mockResolvedValue(undefined),
+            stop: vi.fn().mockResolvedValue(undefined)
+          };
+        }
+      });
+
+      const turn = pmsAgentTurn('msg-pms-agent-dedupe-retry');
+      await handleTurn?.(turn, { source: 'long_connection', rawEvent: {} });
+      await handleTurn?.(turn, { source: 'long_connection', rawEvent: {} });
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(sendNotification).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('releases PMS Agent turn dedupe after delivery failure so retry can deliver the reply', async () => {
+    const fetchMock = vi.fn().mockImplementation(async () => new Response(JSON.stringify({ type: 'text', text: '今晚可订。' }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const sendNotification = vi.fn()
+      .mockRejectedValueOnce(new Error('delivery unavailable'))
+      .mockResolvedValueOnce({
+        providerKey: 'pms-agent-v2',
+        deliveryId: 'delivery-2',
+        channel: 'feishu',
+        status: 'delivered'
+      });
+    let handleTurn: Parameters<AdapterRuntimeDeps['createLongConnectionIngress']>[1] | undefined;
+    const config = createConfig('long_connection');
+    config.pmsAgent = pmsAgentConfigForRuntimeTest();
+
+    try {
+      createAdapterRuntime(config, {
+        createClient: () => createFeishuClientStub(),
+        createBitableClient: () => createBitableClientStub(),
+        createReplySink: () => ({ sendNotification }),
+        createHttpServer: () => ({
+          listen: vi.fn().mockResolvedValue(undefined),
+          close: vi.fn().mockResolvedValue(undefined)
+        }),
+        createLongConnectionIngress: (_config, nextHandleTurn) => {
+          handleTurn = nextHandleTurn;
+          return {
+            start: vi.fn().mockResolvedValue(undefined),
+            stop: vi.fn().mockResolvedValue(undefined)
+          };
+        }
+      });
+
+      const turn = pmsAgentTurn('msg-pms-agent-delivery-retry');
+      await handleTurn?.(turn, { source: 'long_connection', rawEvent: {} });
+      await handleTurn?.(turn, { source: 'long_connection', rawEvent: {} });
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(sendNotification).toHaveBeenCalledTimes(2);
     } finally {
       vi.unstubAllGlobals();
     }
